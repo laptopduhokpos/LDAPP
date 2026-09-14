@@ -2219,11 +2219,25 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         let mmEntryShowCarton = false;
         let mmEntryTrackStock = true;
 
-        function populateEntryCategories() {
+        async function populateEntryCategories() {
             const datalist = document.getElementById("mmEntryCatList");
-            if (!datalist) return;
+            const selectEl = document.getElementById("mmEntryCatSelect");
+            if (!datalist && !selectEl) return;
             const seen = {};
             const cats = [];
+
+            // 1. From invCategoriesCache
+            if (Array.isArray(invCategoriesCache)) {
+                invCategoriesCache.forEach(c => {
+                    const s = String(c || "").trim();
+                    if (s && !seen[s]) {
+                        seen[s] = true;
+                        cats.push(s);
+                    }
+                });
+            }
+
+            // 2. From invProductsCache
             if (Array.isArray(invProductsCache)) {
                 invProductsCache.forEach(p => {
                     const c = String(p.category || "").trim();
@@ -2233,15 +2247,41 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                     }
                 });
             }
+
+            // 3. From POS server via mobile_entry.php if available
+            const posBase = guessPosBase();
+            if (posBase) {
+                try {
+                    const res = await fetch(posBase + "/mobile_entry.php?ajax=1&action=get_meta");
+                    const json = await res.json();
+                    if (json && json.status === "success" && Array.isArray(json.categories)) {
+                        json.categories.forEach(c => {
+                            const s = String(c || "").trim();
+                            if (s && !seen[s]) {
+                                seen[s] = true;
+                                cats.push(s);
+                            }
+                        });
+                    }
+                } catch(e) {}
+            }
+
             cats.sort((a, b) => a.localeCompare(b, "ku", { sensitivity: "base" }));
-            datalist.innerHTML = cats.map(c => `<option value="${esc(c)}">`).join("");
+            if (datalist) {
+                datalist.innerHTML = cats.map(c => `<option value="${esc(c)}">`).join("");
+            }
+            if (selectEl) {
+                selectEl.innerHTML = `<option value="">▼</option>` + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+            }
         }
 
-        function populateEntryManufacturers() {
+        async function populateEntryManufacturers() {
             const datalist = document.getElementById("mmEntryMfrList");
-            if (!datalist) return;
+            const selectEl = document.getElementById("mmEntryMfrSelect");
+            if (!datalist && !selectEl) return;
             const seen = {};
             const mfrs = [];
+
             if (Array.isArray(invProductsCache)) {
                 invProductsCache.forEach(p => {
                     const m = String(p.manufacturer || "").trim();
@@ -2251,8 +2291,31 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                     }
                 });
             }
+
+            const posBase = guessPosBase();
+            if (posBase) {
+                try {
+                    const res = await fetch(posBase + "/mobile_entry.php?ajax=1&action=get_meta");
+                    const json = await res.json();
+                    if (json && json.status === "success" && Array.isArray(json.manufacturers)) {
+                        json.manufacturers.forEach(m => {
+                            const s = String(m || "").trim();
+                            if (s && !seen[s]) {
+                                seen[s] = true;
+                                mfrs.push(s);
+                            }
+                        });
+                    }
+                } catch(e) {}
+            }
+
             mfrs.sort((a, b) => a.localeCompare(b, "ku", { sensitivity: "base" }));
-            datalist.innerHTML = mfrs.map(m => `<option value="${esc(m)}">`).join("");
+            if (datalist) {
+                datalist.innerHTML = mfrs.map(m => `<option value="${esc(m)}">`).join("");
+            }
+            if (selectEl) {
+                selectEl.innerHTML = `<option value="">▼</option>` + mfrs.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+            }
         }
 
         function toggleEntryPack(forcedState) {
@@ -2269,12 +2332,16 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 if (stateSpan) stateSpan.textContent = mmEntryShowPack ? "هەیە" : "نینە";
             }
             if (card) {
+                card.classList.remove("hidden");
                 card.style.display = mmEntryShowPack ? "block" : "none";
             }
             if (convRow) {
-                convRow.style.display = (mmEntryShowPack || mmEntryShowCarton) ? "grid" : "none";
+                const showConv = (mmEntryShowPack || mmEntryShowCarton);
+                convRow.classList.remove("hidden");
+                convRow.style.display = showConv ? "grid" : "none";
             }
             if (pppWrap) {
+                pppWrap.classList.remove("hidden");
                 pppWrap.style.display = mmEntryShowPack ? "block" : "none";
             }
             calcEntryTotalStock();
@@ -2294,12 +2361,16 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 if (stateSpan) stateSpan.textContent = mmEntryShowCarton ? "هەیە" : "نینە";
             }
             if (card) {
+                card.classList.remove("hidden");
                 card.style.display = mmEntryShowCarton ? "block" : "none";
             }
             if (convRow) {
-                convRow.style.display = (mmEntryShowPack || mmEntryShowCarton) ? "grid" : "none";
+                const showConv = (mmEntryShowPack || mmEntryShowCarton);
+                convRow.classList.remove("hidden");
+                convRow.style.display = showConv ? "grid" : "none";
             }
             if (ppcWrap) {
+                ppcWrap.classList.remove("hidden");
                 ppcWrap.style.display = mmEntryShowCarton ? "block" : "none";
             }
             calcEntryTotalStock();
@@ -2860,6 +2931,26 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             populateEntryCategories();
             populateEntryManufacturers();
 
+            const catSel = document.getElementById("mmEntryCatSelect");
+            if (catSel) {
+                catSel.addEventListener("change", () => {
+                    if (catSel.value) {
+                        const inEl = document.getElementById("mmEntryCat");
+                        if (inEl) inEl.value = catSel.value;
+                    }
+                });
+            }
+
+            const mfrSel = document.getElementById("mmEntryMfrSelect");
+            if (mfrSel) {
+                mfrSel.addEventListener("change", () => {
+                    if (mfrSel.value) {
+                        const inEl = document.getElementById("mmEntryMfr");
+                        if (inEl) inEl.value = mfrSel.value;
+                    }
+                });
+            }
+
             const barcodeInput = document.getElementById("mmEntryBarcode");
             if (barcodeInput) {
                 barcodeInput.addEventListener("input", () => {
@@ -3188,6 +3279,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             refreshInventoryView();
             bindInventoryFilters();
             bindInvSubTabs();
+            if (typeof populateEntryCategories === "function") populateEntryCategories();
+            if (typeof populateEntryManufacturers === "function") populateEntryManufacturers();
             if (data.debtSnapshot && (data.debtSnapshot.summary || data.debtSnapshot.companies || data.debtSnapshot.customers)) {
                 applyDebtData(data.debtSnapshot, { silent: true, fromCache: opts.fromCache, savedAt: opts.savedAt });
             }
