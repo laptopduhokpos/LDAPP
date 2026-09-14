@@ -758,6 +758,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         let refreshToastTimer = null;
         const panelHome = document.getElementById("panelHome");
         const panelDash = document.getElementById("panelDash");
+        const panelEntry = document.getElementById("panelEntry");
         const panelInv = document.getElementById("panelInv");
         const panelDebt = document.getElementById("panelDebt");
         const panelBackup = document.getElementById("panelBackup");
@@ -765,6 +766,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         const bottomNav = document.getElementById("bottomNav");
         const tabHomeBtn = document.getElementById("tabHome");
         const tabDashBtn = document.getElementById("tabDash");
+        const tabEntryBtn = document.getElementById("tabEntry");
         const tabInvBtn = document.getElementById("tabInv");
         const tabDebtBtn = document.getElementById("tabDebt");
 
@@ -775,9 +777,10 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         }
 
         function switchMobileTab(tab) {
-            let t = tab === "backup" ? "backup" : tab === "followup" ? "followup" : tab === "debt" ? "debt" : tab === "inv" ? "inv" : tab === "dash" ? "dash" : "home";
+            let t = tab === "backup" ? "backup" : tab === "followup" ? "followup" : tab === "debt" ? "debt" : tab === "inv" ? "inv" : tab === "dash" ? "dash" : tab === "entry" ? "entry" : "home";
             if (panelHome) panelHome.classList.toggle("hidden", t !== "home");
             if (panelDash) panelDash.classList.toggle("hidden", t !== "dash");
+            if (panelEntry) panelEntry.classList.toggle("hidden", t !== "entry");
             if (panelInv) panelInv.classList.toggle("hidden", t !== "inv");
             if (panelDebt) panelDebt.classList.toggle("hidden", t !== "debt");
             if (panelBackup) panelBackup.classList.toggle("hidden", t !== "backup");
@@ -785,8 +788,16 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (t === "backup" && activeChannelId) {
                 bindBackups(activeChannelId);
             }
+            if (t === "entry") {
+                if (typeof populateEntryCategories === "function") populateEntryCategories();
+                setTimeout(() => {
+                    const b = document.getElementById("mmEntryBarcode");
+                    if (b) b.focus();
+                }, 150);
+            }
             setTabActive(tabHomeBtn, t === "home" || t === "followup");
             setTabActive(tabDashBtn, t === "dash");
+            setTabActive(tabEntryBtn, t === "entry");
             setTabActive(tabInvBtn, t === "inv");
             setTabActive(tabDebtBtn, t === "debt");
             try { localStorage.setItem("pos_mobile_tab", t === "followup" ? "home" : t); } catch (e) {}
@@ -2029,9 +2040,18 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (region) region.innerHTML = "";
         }
 
+        let invScannerTarget = "search"; // "search" or "entry"
+
         function applyInvScanResult(code) {
             const val = normalizeBarcodeSearchInput(code) || String(code || "").trim();
             if (!val) return;
+            closeInvScanner();
+            if (invScannerTarget === "entry") {
+                if (typeof applyEntryScanResult === "function") {
+                    applyEntryScanResult(val);
+                }
+                return;
+            }
             invSearchText = val;
             const list = filterInventoryProducts(invProductsCache, invSearchText, invCatFilter);
             if (list.length === 1) {
@@ -2041,7 +2061,6 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             } else {
                 invScanBannerText = "هیچ ئایتمێک نەدۆزرایەوە بۆ «" + val + "»";
             }
-            closeInvScanner();
             refreshInventoryView();
         }
 
@@ -2121,8 +2140,11 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (msg) msg.textContent = "بارکۆد لە ناو چوارگۆشەکەدا بگرە";
         }
 
-        async function openInvScanner() {
-            switchMobileTab("inv");
+        async function openInvScanner(target) {
+            invScannerTarget = target === "entry" ? "entry" : "search";
+            if (invScannerTarget === "search") {
+                switchMobileTab("inv");
+            }
             const modal = document.getElementById("invScannerModal");
             const msg = document.getElementById("invScannerMsg");
             if (!modal) return;
@@ -2144,6 +2166,368 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (modal) {
                 modal.classList.add("hidden");
                 modal.setAttribute("aria-hidden", "true");
+            }
+        }
+
+        /* --- Mobile Item Entry (ئیدخالا کاڵایان ب مۆبایلێ) --- */
+        let mmEntryLookupTimer = null;
+        let mmEntryMode = "add"; // "add" or "set"
+        let mmEntryRecent = [];
+
+        function playChime(success) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                if (success) {
+                    osc.frequency.setValueAtTime(784, ctx.currentTime);
+                    osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.25);
+                } else {
+                    osc.type = "sawtooth";
+                    osc.frequency.setValueAtTime(220, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.2);
+                }
+            } catch(e) {}
+        }
+
+        function guessPosBase() {
+            try {
+                const stored = localStorage.getItem("pos_wifi_base_url");
+                if (stored) return stored.replace(/\/+$/, "");
+            } catch(e) {}
+            if (window.location.protocol === "http:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+                return window.location.origin + "/pos";
+            }
+            if (window.location.pathname.indexOf("/pos") !== -1) {
+                return window.location.origin + "/pos";
+            }
+            return "";
+        }
+
+        function populateEntryCategories() {
+            const datalist = document.getElementById("mmEntryCatList");
+            if (!datalist) return;
+            const seen = {};
+            const cats = [];
+            if (Array.isArray(invProductsCache)) {
+                invProductsCache.forEach(p => {
+                    const c = String(p.category || "").trim();
+                    if (c && !seen[c]) {
+                        seen[c] = true;
+                        cats.push(c);
+                    }
+                });
+            }
+            cats.sort((a, b) => a.localeCompare(b, "ku", { sensitivity: "base" }));
+            datalist.innerHTML = cats.map(c => `<option value="${esc(c)}">`).join("");
+        }
+
+        function applyEntryScanResult(code) {
+            playChime(true);
+            if (navigator.vibrate) navigator.vibrate(80);
+            const barcodeInput = document.getElementById("mmEntryBarcode");
+            if (barcodeInput) {
+                barcodeInput.value = code;
+                lookupEntryBarcode(code);
+            }
+        }
+
+        function lookupEntryBarcode(code) {
+            const raw = String(code || "").trim();
+            if (!raw) {
+                resetEntryStatus();
+                return;
+            }
+            populateEntryCategories();
+
+            let found = null;
+            if (Array.isArray(invProductsCache)) {
+                found = invProductsCache.find(p => {
+                    return barcodeHaystackMatch(p.barcode, raw) ||
+                           normalizeBarcodeSearchInput(String(p.id)) === normalizeBarcodeSearchInput(raw) ||
+                           (p.barcode && String(p.barcode).trim() === raw);
+                });
+            }
+
+            const foundIdEl = document.getElementById("mmEntryFoundId");
+            const nameEl = document.getElementById("mmEntryName");
+            const catEl = document.getElementById("mmEntryCat");
+            const priceEl = document.getElementById("mmEntryPrice");
+            const costEl = document.getElementById("mmEntryCost");
+            const qtyEl = document.getElementById("mmEntryQty");
+            const statusEl = document.getElementById("mmEntryBarcodeStatus");
+            const modeWrap = document.getElementById("mmEntryQtyModeWrap");
+
+            if (found) {
+                if (foundIdEl) foundIdEl.value = found.id;
+                if (nameEl) nameEl.value = found.name || "";
+                if (catEl) catEl.value = found.category || "";
+                if (priceEl) priceEl.value = found.price || "";
+                if (costEl) costEl.value = found.cost || "";
+                if (qtyEl) qtyEl.value = 1;
+                if (modeWrap) modeWrap.classList.remove("hidden");
+                setEntryQtyMode("add");
+
+                if (statusEl) {
+                    statusEl.className = "barcode-status-box found";
+                    statusEl.innerHTML = `<i class="fas fa-check-circle"></i> ئەم کاڵایە هەیە: <strong>${esc(found.name)}</strong> · عەدەدێ مەخزەنی: <strong>${formatQty(found.qty)}</strong>`;
+                    statusEl.classList.remove("hidden");
+                }
+                playChime(true);
+            } else {
+                if (foundIdEl) foundIdEl.value = "0";
+                if (modeWrap) modeWrap.classList.add("hidden");
+                setEntryQtyMode("add");
+
+                if (statusEl) {
+                    statusEl.className = "barcode-status-box new";
+                    statusEl.innerHTML = `<i class="fas fa-sparkles"></i> ✨ کاڵایەکی نوێیە — تکایە ناڤ و نرخ بنڤیسە`;
+                    statusEl.classList.remove("hidden");
+                }
+            }
+        }
+
+        function resetEntryStatus() {
+            const statusEl = document.getElementById("mmEntryBarcodeStatus");
+            if (statusEl) {
+                statusEl.classList.add("hidden");
+                statusEl.innerHTML = "";
+            }
+            const modeWrap = document.getElementById("mmEntryQtyModeWrap");
+            if (modeWrap) modeWrap.classList.add("hidden");
+        }
+
+        function setEntryQtyMode(mode) {
+            mmEntryMode = mode === "set" ? "set" : "add";
+            const btnAdd = document.getElementById("mmBtnModeAdd");
+            const btnSet = document.getElementById("mmBtnModeSet");
+            if (btnAdd) btnAdd.classList.toggle("active", mmEntryMode === "add");
+            if (btnSet) btnSet.classList.toggle("active", mmEntryMode === "set");
+        }
+
+        function updateLocalCacheAfterEntry(item) {
+            if (!Array.isArray(invProductsCache)) invProductsCache = [];
+            const idx = invProductsCache.findIndex(p => {
+                if (item.id && p.id === item.id) return true;
+                if (item.barcode && p.barcode && String(p.barcode).trim() === String(item.barcode).trim()) return true;
+                return false;
+            });
+
+            if (idx >= 0) {
+                const p = invProductsCache[idx];
+                if (item.name) p.name = item.name;
+                if (item.barcode) p.barcode = item.barcode;
+                if (item.category) p.category = item.category;
+                if (item.price) p.price = item.price;
+                if (item.cost) p.cost = item.cost;
+                if (item.finalQty !== undefined) {
+                    p.qty = item.finalQty;
+                } else if (item.qty_mode === "set") {
+                    p.qty = item.qty;
+                } else {
+                    p.qty = (p.qty || 0) + item.qty;
+                }
+            } else {
+                invProductsCache.unshift({
+                    id: item.id || Date.now(),
+                    name: item.name,
+                    barcode: item.barcode,
+                    category: item.category,
+                    price: item.price,
+                    cost: item.cost,
+                    qty: item.qty,
+                    trackStock: 1
+                });
+            }
+            refreshInventoryView();
+        }
+
+        function addRecentEntryItem(item) {
+            mmEntryRecent.unshift(item);
+            if (mmEntryRecent.length > 30) mmEntryRecent.pop();
+
+            const cntEl = document.getElementById("mmEntryRecentCount");
+            if (cntEl) cntEl.textContent = mmEntryRecent.length + " کاڵا";
+
+            const listEl = document.getElementById("mmEntryRecentList");
+            if (!listEl) return;
+            listEl.innerHTML = mmEntryRecent.map(it => {
+                const qtyTxt = it.qty_mode === "set" ? ("عەدەد: " + it.qty) : ("+" + it.qty);
+                return `
+                    <div class="entry-recent-item">
+                        <div class="entry-recent-info">
+                            <div class="entry-recent-name">${esc(it.name)}</div>
+                            <div class="entry-recent-meta">
+                                ${it.barcode ? `<span dir="ltr">#${esc(it.barcode)}</span> · ` : ""}
+                                ${it.category ? `<span>${esc(it.category)}</span> · ` : ""}
+                                <span>نرخ: ${formatMoney(it.price)}</span>
+                            </div>
+                        </div>
+                        <div class="entry-recent-badge">${qtyTxt}</div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function saveEntryProduct() {
+            const btn = document.getElementById("mmEntrySubmitBtn");
+            const barcode = (document.getElementById("mmEntryBarcode")?.value || "").trim();
+            const name = (document.getElementById("mmEntryName")?.value || "").trim();
+            const cat = (document.getElementById("mmEntryCat")?.value || "").trim();
+            const price = parseFloat(document.getElementById("mmEntryPrice")?.value) || 0;
+            const cost = parseFloat(document.getElementById("mmEntryCost")?.value) || 0;
+            const qty = parseFloat(document.getElementById("mmEntryQty")?.value) || 0;
+            const foundId = parseInt(document.getElementById("mmEntryFoundId")?.value, 10) || 0;
+
+            const finalName = name || (barcode ? ("کاڵا " + barcode) : "");
+            if (!finalName) {
+                showRefreshToast("تکایە ناڤێ کاڵای بنڤیسە", true);
+                return;
+            }
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> چاوەڕێبە...';
+            }
+
+            const itemPayload = {
+                id: foundId,
+                barcode: barcode,
+                name: finalName,
+                category: cat,
+                price: price,
+                cost: cost,
+                qty: qty,
+                qty_mode: mmEntryMode,
+                trackStock: 1,
+                added_at: Date.now()
+            };
+
+            let savedLocally = false;
+            let savedCloud = false;
+
+            const posBase = guessPosBase();
+            if (posBase && window.location.protocol !== "https:") {
+                try {
+                    const fd = new FormData();
+                    fd.append("action", "save_product");
+                    fd.append("product_id", itemPayload.id);
+                    fd.append("barcode", itemPayload.barcode);
+                    fd.append("name", itemPayload.name);
+                    fd.append("price", itemPayload.price);
+                    fd.append("cost", itemPayload.cost);
+                    fd.append("qty", itemPayload.qty);
+                    fd.append("qty_mode", itemPayload.qty_mode);
+                    fd.append("category", itemPayload.category);
+                    fd.append("trackStock", 1);
+
+                    const res = await fetch(posBase + "/mobile_entry.php", {
+                        method: "POST",
+                        body: fd
+                    });
+                    const json = await res.json();
+                    if (json && json.status === "success") {
+                        savedLocally = true;
+                        if (json.id) itemPayload.id = json.id;
+                        if (json.qty !== undefined) itemPayload.finalQty = json.qty;
+                    }
+                } catch(e) {}
+            }
+
+            if (activeChannelId && db) {
+                try {
+                    const invRef = doc(db, "pos_mobile_inventory", activeChannelId);
+                    const snap = await getDoc(invRef);
+                    let queue = [];
+                    if (snap.exists() && Array.isArray(snap.data()?.pending_items)) {
+                        queue = snap.data().pending_items;
+                    }
+                    if (!savedLocally) {
+                        queue.push(itemPayload);
+                        await updateDoc(invRef, { pending_items: queue });
+                        savedCloud = true;
+                    }
+                } catch(e) {
+                    console.warn("Cloud queue error:", e);
+                }
+            }
+
+            updateLocalCacheAfterEntry(itemPayload);
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> <span>تۆمارکرن د سیستەمی دا</span>';
+            }
+
+            playChime(true);
+            if (navigator.vibrate) navigator.vibrate(80);
+            showRefreshToast(savedLocally ? "کاڵا ب سەرکەفتی ل POS هاتە تۆمارکرن" : "کاڵا تۆمارکرا و بۆ سیستەم هاتە ناردن (Cloud)");
+
+            addRecentEntryItem(itemPayload);
+
+            const bInp = document.getElementById("mmEntryBarcode");
+            const nInp = document.getElementById("mmEntryName");
+            const pInp = document.getElementById("mmEntryPrice");
+            const cInp = document.getElementById("mmEntryCost");
+            const qInp = document.getElementById("mmEntryQty");
+            const catInp = document.getElementById("mmEntryCat");
+            const fId = document.getElementById("mmEntryFoundId");
+
+            if (bInp) { bInp.value = ""; bInp.focus(); }
+            if (nInp) nInp.value = "";
+            if (pInp) pInp.value = "";
+            if (cInp) cInp.value = "";
+            if (qInp) qInp.value = "1";
+            if (catInp) catInp.value = "";
+            if (fId) fId.value = "0";
+            resetEntryStatus();
+        }
+
+        function initMobileEntry() {
+            populateEntryCategories();
+
+            const barcodeInput = document.getElementById("mmEntryBarcode");
+            if (barcodeInput) {
+                barcodeInput.addEventListener("input", () => {
+                    clearTimeout(mmEntryLookupTimer);
+                    const val = barcodeInput.value.trim();
+                    if (val.length >= 2) {
+                        mmEntryLookupTimer = setTimeout(() => {
+                            lookupEntryBarcode(val);
+                        }, 250);
+                    } else {
+                        resetEntryStatus();
+                    }
+                });
+            }
+
+            const scanBtn = document.getElementById("mmEntryScanBtn");
+            if (scanBtn) {
+                scanBtn.addEventListener("click", () => {
+                    openInvScanner("entry");
+                });
+            }
+
+            const btnAdd = document.getElementById("mmBtnModeAdd");
+            const btnSet = document.getElementById("mmBtnModeSet");
+            if (btnAdd) btnAdd.addEventListener("click", () => setEntryQtyMode("add"));
+            if (btnSet) btnSet.addEventListener("click", () => setEntryQtyMode("set"));
+
+            const form = document.getElementById("mmEntryForm");
+            if (form) {
+                form.addEventListener("submit", (e) => {
+                    e.preventDefault();
+                    saveEntryProduct();
+                });
             }
         }
 
@@ -2732,8 +3116,13 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         document.getElementById("authForm").addEventListener("submit", (ev) => { ev.preventDefault(); doLogin(); });
         if (tabHomeBtn) tabHomeBtn.addEventListener("click", () => switchMobileTab("home"));
         if (tabDashBtn) tabDashBtn.addEventListener("click", () => switchMobileTab("dash"));
+        if (tabEntryBtn) tabEntryBtn.addEventListener("click", () => switchMobileTab("entry"));
         if (tabInvBtn) tabInvBtn.addEventListener("click", () => switchMobileTab("inv"));
         if (tabDebtBtn) tabDebtBtn.addEventListener("click", () => switchMobileTab("debt"));
+        const homeGoEntry = document.getElementById("homeGoEntry");
+        if (homeGoEntry) homeGoEntry.addEventListener("click", () => switchMobileTab("entry"));
+        const invOpenEntryBtn = document.getElementById("invOpenEntryBtn");
+        if (invOpenEntryBtn) invOpenEntryBtn.addEventListener("click", () => switchMobileTab("entry"));
         const homeGoDash = document.getElementById("homeGoDash");
         const homeGoInv = document.getElementById("homeGoInv");
         const homeGoDebt = document.getElementById("homeGoDebt");
@@ -2788,6 +3177,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 if (e.target === invScannerModal) closeInvScanner();
             });
         }
+        if (typeof initMobileEntry === "function") initMobileEntry();
 
         let deferredInstallPrompt = null;
         const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
@@ -2990,6 +3380,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const homeEmail = document.getElementById("homeEmail");
             if (homeEmail) homeEmail.textContent = user.email;
             const savedTab = (function () {
+                if (location.hash === "#entry" || location.hash === "#inv" || location.hash === "#dash" || location.hash === "#debt") {
+                    return location.hash.replace("#", "");
+                }
                 try {
                     return localStorage.getItem("pos_mobile_tab") || "home";
                 } catch (e) { return "home"; }
@@ -2998,6 +3391,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 savedTab === "backup" ? "backup" :
                 savedTab === "debt" ? "debt" :
                 savedTab === "inv" ? "inv" :
+                savedTab === "entry" ? "entry" :
                 savedTab === "dash" ? "dash" : "home"
             );
             const channelId = user.email.toLowerCase();
