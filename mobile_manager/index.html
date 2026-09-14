@@ -12,13 +12,13 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>Laptop Duhok POS — MOBILE APP v2.18.42</title>
-    <script>window.MM_APP_VERSION = "2.18.42";</script>
-    <link rel="manifest" href="manifest.json?v=2.18.42" />
+    <title>Laptop Duhok POS — MOBILE APP v2.18.41</title>
+    <script>window.MM_APP_VERSION = "2.18.41";</script>
+    <link rel="manifest" href="manifest.json?v=2.18.41" />
     <link rel="icon" href="assets/icons/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" sizes="180x180">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="css/mm-app.css?v=2.18.42" />
+    <link rel="stylesheet" href="css/mm-app.css?v=2.18.41" />
 
 </head>
 <body>
@@ -127,11 +127,6 @@
                     </div>
                     </div>
                     <div class="home-tiles">
-                        <button type="button" class="home-tile tile-entry" id="homeGoEntry">
-                            <i class="fas fa-barcode"></i>
-                            <strong>ئیدخالا کاڵایان</strong>
-                            <small>سکان ب مۆبایلێ · زێدەکرنا کاڵا</small>
-                        </button>
                         <button type="button" class="home-tile tile-dash" id="homeGoDash">
                             <i class="fas fa-chart-pie"></i>
                             <strong>داشبۆرد</strong>
@@ -265,12 +260,9 @@
                     </div>
                     <div id="invWhBadge" class="inv-wh-badge hidden"><i class="fas fa-boxes-stacked"></i> <span id="invWhName">—</span></div>
 
-                    <div class="inv-scan-row" style="display:flex;gap:8px;">
-                        <button type="button" id="invScanBtn" class="inv-scan-btn" style="flex:1;">
-                            <i class="fas fa-barcode"></i> سکان · گەڕان
-                        </button>
-                        <button type="button" id="invOpenEntryBtn" class="inv-scan-btn" style="flex:1;background:linear-gradient(135deg, #059669, #10b981);color:#fff;">
-                            <i class="fas fa-plus-circle"></i> ئیدخالا کاڵایان
+                    <div class="inv-scan-row">
+                        <button type="button" id="invScanBtn" class="inv-scan-btn">
+                            <i class="fas fa-barcode"></i> سکان · گەڕان لە کۆگە
                         </button>
                     </div>
 
@@ -386,84 +378,6 @@
                     </div>
                 </div>
                 </div>
-
-                <div id="panelEntry" class="app-panel hidden">
-                <div class="card" style="padding-top:16px;">
-                    <div class="dash-header">
-                        <h2 class="dash-title"><i class="fas fa-barcode" style="color:#10b981"></i> ئیدخالا کاڵایان ب مۆبایلێ</h2>
-                        <div id="entrySyncBadge" class="entry-sync-badge"><span class="dot"></span> <span id="entrySyncBadgeTxt">ئامادەیە</span></div>
-                    </div>
-                    <p class="sub" style="margin:0 0 14px;font-size:0.78rem;color:var(--muted);">
-                        سکان ب کامێرێ یان نڤیسینا بارکۆدی · زێدەکرنا کاڵای نوێ یان کۆگە
-                    </p>
-
-                    <form id="mmEntryForm" action="#" onsubmit="event.preventDefault();">
-                        <input type="hidden" id="mmEntryFoundId" value="0">
-
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label class="field-label" for="mmEntryBarcode">بارکۆدێ کاڵای (Barcode)</label>
-                            <div class="input-with-btn">
-                                <input id="mmEntryBarcode" type="text" placeholder="بارکۆد بنووسە یان سکان بکە..." autocomplete="off" inputmode="text">
-                                <button type="button" id="mmEntryScanBtn" class="btn-scan-act" title="سکان ب کامێرێ">
-                                    <i class="fas fa-camera"></i>
-                                    <span>سکان</span>
-                                </button>
-                            </div>
-                            <div id="mmEntryBarcodeStatus" class="barcode-status-box hidden"></div>
-                        </div>
-
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label class="field-label" for="mmEntryName">ناڤێ کاڵای <span style="color:var(--danger)">*</span></label>
-                            <input id="mmEntryName" type="text" placeholder="ناڤێ بەرهەم یان کاڵای بنڤیسە..." autocomplete="off" required>
-                        </div>
-
-                        <div class="form-group" style="margin-bottom:12px;">
-                            <label class="field-label" for="mmEntryCat">پۆلین (Category)</label>
-                            <input id="mmEntryCat" list="mmEntryCatList" type="text" placeholder="پۆلین هەڵبژێرە یان بنووسە..." autocomplete="off">
-                            <datalist id="mmEntryCatList"></datalist>
-                        </div>
-
-                        <div class="grid-2-col" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-                            <div class="form-group" style="margin:0;">
-                                <label class="field-label" for="mmEntryPrice">نرخێ فرۆشتنێ <span style="color:var(--danger)">*</span></label>
-                                <input id="mmEntryPrice" type="number" step="any" min="0" placeholder="0" inputmode="decimal" required>
-                            </div>
-                            <div class="form-group" style="margin:0;">
-                                <label class="field-label" for="mmEntryCost">نرخێ کڕینێ (تێچوو)</label>
-                                <input id="mmEntryCost" type="number" step="any" min="0" placeholder="0" inputmode="decimal">
-                            </div>
-                        </div>
-
-                        <div class="form-group" style="margin-bottom:14px;">
-                            <label class="field-label" for="mmEntryQty">ژمارە (عەدەدێ مەخزەنی)</label>
-                            <div id="mmEntryQtyModeWrap" class="qty-mode-toggle hidden" style="display:flex;gap:8px;margin-bottom:8px;">
-                                <button type="button" class="mode-btn active" id="mmBtnModeAdd">
-                                    <i class="fas fa-plus-circle"></i> + زێدەکرن سەر مەخزەنی
-                                </button>
-                                <button type="button" class="mode-btn" id="mmBtnModeSet">
-                                    <i class="fas fa-pen-to-square"></i> گۆڕینی ڕاستەوخۆ
-                                </button>
-                            </div>
-                            <input id="mmEntryQty" type="number" step="any" min="0" value="1" inputmode="decimal">
-                        </div>
-
-                        <button type="submit" id="mmEntrySubmitBtn" class="btn-primary btn-entry-save" style="width:100%;padding:14px;background:linear-gradient(135deg, #10b981, #059669);border:none;border-radius:14px;font-size:1rem;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;box-shadow:0 6px 20px rgba(16,185,129,.35);">
-                            <i class="fas fa-save"></i>
-                            <span>تۆمارکرن د سیستەمی دا</span>
-                        </button>
-                    </form>
-
-                    <div class="entry-recent-section" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px;">
-                        <div class="entry-recent-head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                            <span style="font-size:0.85rem;font-weight:700;color:var(--muted);"><i class="fas fa-clock-rotate-left"></i> کاڵایێن دوماهیێ هاتینە زێدەکرن</span>
-                            <span id="mmEntryRecentCount" class="badge-count" style="font-size:0.75rem;padding:2px 8px;border-radius:10px;background:rgba(16,185,129,.15);color:#34d399;font-weight:700;">0 کاڵا</span>
-                        </div>
-                        <div id="mmEntryRecentList" class="entry-recent-list">
-                            <div class="detail-empty" style="text-align:center;color:var(--muted);font-size:0.82rem;padding:12px;">هێشتا هیچ کاڵایەک ل ڤێرێ نەهاتیە زێدەکرن</div>
-                        </div>
-                    </div>
-                </div>
-                </div>
             </div>
         </div>
 
@@ -475,10 +389,6 @@
             <button type="button" id="tabDash" class="nav-tab" aria-pressed="false">
                 <i class="fas fa-chart-pie"></i>
                 <span>داشبۆرد</span>
-            </button>
-            <button type="button" id="tabEntry" class="nav-tab nav-tab-entry" aria-pressed="false">
-                <i class="fas fa-barcode"></i>
-                <span>ئیدخال</span>
             </button>
             <button type="button" id="tabInv" class="nav-tab nav-tab-inv" aria-pressed="false">
                 <i class="fas fa-warehouse"></i>
