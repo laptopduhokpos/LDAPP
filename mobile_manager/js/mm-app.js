@@ -758,6 +758,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         let refreshToastTimer = null;
         const panelHome = document.getElementById("panelHome");
         const panelDash = document.getElementById("panelDash");
+        const panelEntry = document.getElementById("panelEntry");
         const panelInv = document.getElementById("panelInv");
         const panelDebt = document.getElementById("panelDebt");
         const panelBackup = document.getElementById("panelBackup");
@@ -765,6 +766,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         const bottomNav = document.getElementById("bottomNav");
         const tabHomeBtn = document.getElementById("tabHome");
         const tabDashBtn = document.getElementById("tabDash");
+        const tabEntryBtn = document.getElementById("tabEntry");
         const tabInvBtn = document.getElementById("tabInv");
         const tabDebtBtn = document.getElementById("tabDebt");
 
@@ -775,9 +777,10 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         }
 
         function switchMobileTab(tab) {
-            let t = tab === "backup" ? "backup" : tab === "followup" ? "followup" : tab === "debt" ? "debt" : tab === "inv" ? "inv" : tab === "dash" ? "dash" : "home";
+            let t = tab === "backup" ? "backup" : tab === "followup" ? "followup" : tab === "debt" ? "debt" : tab === "inv" ? "inv" : tab === "dash" ? "dash" : tab === "entry" ? "entry" : "home";
             if (panelHome) panelHome.classList.toggle("hidden", t !== "home");
             if (panelDash) panelDash.classList.toggle("hidden", t !== "dash");
+            if (panelEntry) panelEntry.classList.toggle("hidden", t !== "entry");
             if (panelInv) panelInv.classList.toggle("hidden", t !== "inv");
             if (panelDebt) panelDebt.classList.toggle("hidden", t !== "debt");
             if (panelBackup) panelBackup.classList.toggle("hidden", t !== "backup");
@@ -785,8 +788,18 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (t === "backup" && activeChannelId) {
                 bindBackups(activeChannelId);
             }
+            if (t === "entry") {
+                if (typeof populateEntryCategories === "function") populateEntryCategories();
+                if (typeof populateEntryManufacturers === "function") populateEntryManufacturers();
+                if (typeof calcEntryTotalStock === "function") calcEntryTotalStock();
+                setTimeout(() => {
+                    const b = document.getElementById("mmEntryBarcode");
+                    if (b) b.focus();
+                }, 150);
+            }
             setTabActive(tabHomeBtn, t === "home" || t === "followup");
             setTabActive(tabDashBtn, t === "dash");
+            setTabActive(tabEntryBtn, t === "entry");
             setTabActive(tabInvBtn, t === "inv");
             setTabActive(tabDebtBtn, t === "debt");
             try { localStorage.setItem("pos_mobile_tab", t === "followup" ? "home" : t); } catch (e) {}
@@ -2029,9 +2042,18 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (region) region.innerHTML = "";
         }
 
+        let invScannerTarget = "search"; // "search" or "entry"
+
         function applyInvScanResult(code) {
             const val = normalizeBarcodeSearchInput(code) || String(code || "").trim();
             if (!val) return;
+            closeInvScanner();
+            if (invScannerTarget && invScannerTarget.indexOf("entry") === 0) {
+                if (typeof applyEntryScanResult === "function") {
+                    applyEntryScanResult(val, invScannerTarget);
+                }
+                return;
+            }
             invSearchText = val;
             const list = filterInventoryProducts(invProductsCache, invSearchText, invCatFilter);
             if (list.length === 1) {
@@ -2041,7 +2063,6 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             } else {
                 invScanBannerText = "هیچ ئایتمێک نەدۆزرایەوە بۆ «" + val + "»";
             }
-            closeInvScanner();
             refreshInventoryView();
         }
 
@@ -2121,8 +2142,11 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (msg) msg.textContent = "بارکۆد لە ناو چوارگۆشەکەدا بگرە";
         }
 
-        async function openInvScanner() {
-            switchMobileTab("inv");
+        async function openInvScanner(target) {
+            invScannerTarget = target === "entry" ? "entry" : "search";
+            if (invScannerTarget === "search") {
+                switchMobileTab("inv");
+            }
             const modal = document.getElementById("invScannerModal");
             const msg = document.getElementById("invScannerMsg");
             if (!modal) return;
@@ -2144,6 +2168,783 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (modal) {
                 modal.classList.add("hidden");
                 modal.setAttribute("aria-hidden", "true");
+            }
+        }
+
+        /* --- Mobile Item Entry (ئیدخالا کاڵایان ب مۆبایلێ) --- */
+        let mmEntryLookupTimer = null;
+        let mmEntryMode = "add"; // "add" or "set"
+        let mmEntryRecent = [];
+
+        function playChime(success) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                if (success) {
+                    osc.frequency.setValueAtTime(784, ctx.currentTime);
+                    osc.frequency.setValueAtTime(1046.5, ctx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.25);
+                } else {
+                    osc.type = "sawtooth";
+                    osc.frequency.setValueAtTime(220, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.2);
+                }
+            } catch(e) {}
+        }
+
+        function guessPosBase() {
+            try {
+                const stored = localStorage.getItem("pos_wifi_base_url");
+                if (stored) return stored.replace(/\/+$/, "");
+            } catch(e) {}
+            if (window.location.protocol === "http:" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+                return window.location.origin + "/pos";
+            }
+            if (window.location.pathname.indexOf("/pos") !== -1) {
+                return window.location.origin + "/pos";
+            }
+            return "";
+        }
+
+        let mmEntryShowPack = false;
+        let mmEntryShowCarton = false;
+        let mmEntryTrackStock = true;
+        let mmEntryMode = "add";
+        let mmEntryLookupTimer = null;
+        let mmEntryRecent = [];
+
+        function populateEntryCategories() {
+            const datalist = document.getElementById("mmEntryCatList");
+            if (!datalist) return;
+            const seen = {};
+            const cats = [];
+            if (Array.isArray(invProductsCache)) {
+                invProductsCache.forEach(p => {
+                    const c = String(p.category || "").trim();
+                    if (c && !seen[c]) {
+                        seen[c] = true;
+                        cats.push(c);
+                    }
+                });
+            }
+            cats.sort((a, b) => a.localeCompare(b, "ku", { sensitivity: "base" }));
+            datalist.innerHTML = cats.map(c => `<option value="${esc(c)}">`).join("");
+        }
+
+        function populateEntryManufacturers() {
+            const datalist = document.getElementById("mmEntryMfrList");
+            if (!datalist) return;
+            const seen = {};
+            const mfrs = [];
+            if (Array.isArray(invProductsCache)) {
+                invProductsCache.forEach(p => {
+                    const m = String(p.manufacturer || "").trim();
+                    if (m && !seen[m]) {
+                        seen[m] = true;
+                        mfrs.push(m);
+                    }
+                });
+            }
+            mfrs.sort((a, b) => a.localeCompare(b, "ku", { sensitivity: "base" }));
+            datalist.innerHTML = mfrs.map(m => `<option value="${esc(m)}">`).join("");
+        }
+
+        function toggleEntryPack(forcedState) {
+            mmEntryShowPack = (forcedState !== undefined) ? !!forcedState : !mmEntryShowPack;
+            const btn = document.getElementById("mmTogglePackBtn");
+            const card = document.getElementById("mmCardPack");
+            const convRow = document.getElementById("mmEntryConvRow");
+            const pppWrap = document.getElementById("mmConvPppWrap");
+
+            if (btn) {
+                btn.classList.toggle("active", mmEntryShowPack);
+                btn.setAttribute("aria-checked", mmEntryShowPack ? "true" : "false");
+                const stateSpan = btn.querySelector(".toggle-state");
+                if (stateSpan) stateSpan.textContent = mmEntryShowPack ? "هەیە" : "نینە";
+            }
+            if (card) {
+                card.style.display = mmEntryShowPack ? "block" : "none";
+            }
+            if (convRow) {
+                convRow.style.display = (mmEntryShowPack || mmEntryShowCarton) ? "grid" : "none";
+            }
+            if (pppWrap) {
+                pppWrap.style.display = mmEntryShowPack ? "block" : "none";
+            }
+            calcEntryTotalStock();
+        }
+
+        function toggleEntryCarton(forcedState) {
+            mmEntryShowCarton = (forcedState !== undefined) ? !!forcedState : !mmEntryShowCarton;
+            const btn = document.getElementById("mmToggleCartonBtn");
+            const card = document.getElementById("mmCardCarton");
+            const convRow = document.getElementById("mmEntryConvRow");
+            const ppcWrap = document.getElementById("mmConvPpcWrap");
+
+            if (btn) {
+                btn.classList.toggle("active", mmEntryShowCarton);
+                btn.setAttribute("aria-checked", mmEntryShowCarton ? "true" : "false");
+                const stateSpan = btn.querySelector(".toggle-state");
+                if (stateSpan) stateSpan.textContent = mmEntryShowCarton ? "هەیە" : "نینە";
+            }
+            if (card) {
+                card.style.display = mmEntryShowCarton ? "block" : "none";
+            }
+            if (convRow) {
+                convRow.style.display = (mmEntryShowPack || mmEntryShowCarton) ? "grid" : "none";
+            }
+            if (ppcWrap) {
+                ppcWrap.style.display = mmEntryShowCarton ? "block" : "none";
+            }
+            calcEntryTotalStock();
+        }
+
+        function toggleEntryTrack(forcedState) {
+            mmEntryTrackStock = (forcedState !== undefined) ? !!forcedState : !mmEntryTrackStock;
+            const btn = document.getElementById("mmToggleTrackBtn");
+            if (btn) {
+                btn.classList.toggle("active", mmEntryTrackStock);
+                btn.setAttribute("aria-checked", mmEntryTrackStock ? "true" : "false");
+                const stateSpan = btn.querySelector(".toggle-state");
+                if (stateSpan) stateSpan.textContent = mmEntryTrackStock ? "هەیە" : "نینە";
+            }
+        }
+
+        function calcEntryTotalStock() {
+            const ppp = Math.max(1, parseInt(document.getElementById("mmEntryPiecesPerPack")?.value, 10) || 1);
+            const ppc = Math.max(1, parseInt(document.getElementById("mmEntryPacksPerCarton")?.value, 10) || 1);
+            const itemsPerPack = mmEntryShowPack ? ppp : 1;
+            const itemsPerCarton = mmEntryShowCarton ? (itemsPerPack * ppc) : 1;
+
+            const stockPiece = parseFloat(document.getElementById("mmEntryStockPiece")?.value) || 0;
+            const stockPack = mmEntryShowPack ? (parseFloat(document.getElementById("mmEntryStockPack")?.value) || 0) : 0;
+            const stockCarton = mmEntryShowCarton ? (parseFloat(document.getElementById("mmEntryStockCarton")?.value) || 0) : 0;
+
+            const total = (stockCarton * itemsPerCarton) + (stockPack * itemsPerPack) + stockPiece;
+
+            const badge = document.getElementById("mmEntryTotalStockBadge");
+            if (badge) badge.textContent = formatQty(total) + " دانە";
+
+            const preview = document.getElementById("mmConvTotalPreview");
+            if (preview) {
+                if (mmEntryShowCarton) {
+                    preview.textContent = "کۆی دانە ل کارتۆنێ دا: " + itemsPerCarton + " دانە";
+                } else if (mmEntryShowPack) {
+                    preview.textContent = "کۆی دانە ل پاکێتێ دا: " + itemsPerPack + " دانە";
+                } else {
+                    preview.textContent = "";
+                }
+            }
+
+            return { totalQty: total, ppp, ppc, itemsPerCarton, stockPiece, stockPack, stockCarton };
+        }
+
+        function autoGenerateBarcode() {
+            const code = "99" + Math.floor(1000000000 + Math.random() * 9000000000);
+            const barcodeInp = document.getElementById("mmEntryBarcode");
+            if (barcodeInp) {
+                barcodeInp.value = code;
+                lookupEntryBarcode(code);
+            }
+        }
+
+        function syncAllowNoName() {
+            const chk = document.getElementById("mmEntryAllowNoName");
+            const nameInp = document.getElementById("mmEntryName");
+            if (!nameInp) return;
+            if (chk && chk.checked) {
+                nameInp.required = false;
+                nameInp.placeholder = "خۆکار ژ بارکۆد و نرخ (بێ ناو)";
+            } else {
+                nameInp.required = true;
+                nameInp.placeholder = "ناڤێ بەرهەم بنڤیسە...";
+            }
+        }
+
+        function applyEntryScanResult(code, target) {
+            playChime(true);
+            if (navigator.vibrate) navigator.vibrate(80);
+            if (target === "entry_pack") {
+                const pInp = document.getElementById("mmEntryBarcodePack");
+                if (pInp) pInp.value = code;
+            } else if (target === "entry_carton") {
+                const cInp = document.getElementById("mmEntryBarcodeCarton");
+                if (cInp) cInp.value = code;
+            } else {
+                const barcodeInput = document.getElementById("mmEntryBarcode");
+                if (barcodeInput) {
+                    barcodeInput.value = code;
+                    lookupEntryBarcode(code);
+                }
+            }
+        }
+
+        function fillEntryFormFromProduct(found) {
+            if (!found) return;
+            const foundIdEl = document.getElementById("mmEntryFoundId");
+            const nameEl = document.getElementById("mmEntryName");
+            const catEl = document.getElementById("mmEntryCat");
+            const mfrEl = document.getElementById("mmEntryMfr");
+            const priceEl = document.getElementById("mmEntryPrice");
+            const costEl = document.getElementById("mmEntryCost");
+            const stockPieceEl = document.getElementById("mmEntryStockPiece");
+            const statusEl = document.getElementById("mmEntryBarcodeStatus");
+            const modeWrap = document.getElementById("mmEntryQtyModeWrap");
+
+            if (foundIdEl) foundIdEl.value = found.id || "0";
+            if (nameEl) nameEl.value = found.name || "";
+            if (catEl) catEl.value = found.category || "";
+            if (mfrEl) mfrEl.value = found.manufacturer || "";
+            if (priceEl) priceEl.value = (found.price !== undefined && found.price !== null) ? found.price : "";
+            if (costEl) costEl.value = (found.cost !== undefined && found.cost !== null) ? found.cost : "";
+            if (stockPieceEl) stockPieceEl.value = "1";
+
+            // Pack fields
+            const hasPack = !!(found.unit_show_pack || found.barcode_pack || (found.price_pack && found.price_pack > 0));
+            toggleEntryPack(hasPack);
+            const bPackEl = document.getElementById("mmEntryBarcodePack");
+            const pPackEl = document.getElementById("mmEntryPricePack");
+            const cPackEl = document.getElementById("mmEntryCostPack");
+            const sPackEl = document.getElementById("mmEntryStockPack");
+            const pppEl = document.getElementById("mmEntryPiecesPerPack");
+            if (bPackEl) bPackEl.value = found.barcode_pack || "";
+            if (pPackEl) pPackEl.value = (found.price_pack !== undefined && found.price_pack !== null) ? found.price_pack : "";
+            if (cPackEl) cPackEl.value = (found.cost_pack !== undefined && found.cost_pack !== null) ? found.cost_pack : "";
+            if (sPackEl) sPackEl.value = "0";
+            if (pppEl) pppEl.value = found.pieces_per_pack || 1;
+
+            // Carton fields
+            const hasCarton = !!(found.unit_show_carton || found.barcode_carton || (found.price_carton && found.price_carton > 0));
+            toggleEntryCarton(hasCarton);
+            const bCartonEl = document.getElementById("mmEntryBarcodeCarton");
+            const pCartonEl = document.getElementById("mmEntryPriceCarton");
+            const cCartonEl = document.getElementById("mmEntryCostCarton");
+            const sCartonEl = document.getElementById("mmEntryStockCarton");
+            const ppcEl = document.getElementById("mmEntryPacksPerCarton");
+            if (bCartonEl) bCartonEl.value = found.barcode_carton || "";
+            if (pCartonEl) pCartonEl.value = (found.price_carton !== undefined && found.price_carton !== null) ? found.price_carton : "";
+            if (cCartonEl) cCartonEl.value = (found.cost_carton !== undefined && found.cost_carton !== null) ? found.cost_carton : "";
+            if (sCartonEl) sCartonEl.value = "0";
+            if (ppcEl) ppcEl.value = found.packs_per_carton || 1;
+
+            // Advanced fields
+            const wqEl = document.getElementById("mmEntryWholesaleQty");
+            const wpEl = document.getElementById("mmEntryWholesalePrice");
+            const expEl = document.getElementById("mmEntryExpiry");
+            const minEl = document.getElementById("mmEntryMinStock");
+            const noteEl = document.getElementById("mmEntryNote");
+            const saleEl = document.getElementById("mmEntryForSale");
+            if (wqEl) wqEl.value = found.wholesaleQty || "";
+            if (wpEl) wpEl.value = found.wholesalePrice || "";
+            if (expEl) expEl.value = found.expiry || "";
+            if (minEl) minEl.value = found.minStock || 5;
+            if (noteEl) noteEl.value = found.note || "";
+            if (saleEl) saleEl.checked = (found.forSale !== 0);
+
+            if (modeWrap) modeWrap.classList.remove("hidden");
+            setEntryQtyMode("add");
+
+            calcEntryTotalStock();
+
+            if (statusEl) {
+                statusEl.className = "barcode-status-box found";
+                statusEl.innerHTML = `<i class="fas fa-check-circle"></i> ئەم کاڵایە هەیە: <strong>${esc(found.name)}</strong> · عەدەدێ مەخزەنی: <strong>${formatQty(found.qty)}</strong>`;
+                statusEl.classList.remove("hidden");
+            }
+            playChime(true);
+        }
+
+        async function lookupEntryBarcode(code) {
+            const raw = String(code || "").trim();
+            if (!raw) {
+                resetEntryStatus();
+                return;
+            }
+            populateEntryCategories();
+            populateEntryManufacturers();
+
+            let found = null;
+            if (Array.isArray(invProductsCache)) {
+                found = invProductsCache.find(p => {
+                    return (p.barcode && String(p.barcode).trim() === raw) ||
+                           (p.barcode_pack && String(p.barcode_pack).trim() === raw) ||
+                           (p.barcode_carton && String(p.barcode_carton).trim() === raw) ||
+                           barcodeHaystackMatch(p.barcode, raw) ||
+                           normalizeBarcodeSearchInput(String(p.id)) === normalizeBarcodeSearchInput(raw);
+                });
+            }
+
+            if (found) {
+                fillEntryFormFromProduct(found);
+                return;
+            }
+
+            // If not found in cache, check server via mobile_entry.php if available
+            const posBase = guessPosBase();
+            if (posBase) {
+                try {
+                    const res = await fetch(posBase + "/mobile_entry.php?ajax=1&action=lookup_barcode&barcode=" + encodeURIComponent(raw));
+                    const json = await res.json();
+                    if (json && json.status === "success" && json.found && json.product) {
+                        fillEntryFormFromProduct(json.product);
+                        return;
+                    }
+                } catch(e) {}
+            }
+
+            // Not found anywhere -> new product
+            const foundIdEl = document.getElementById("mmEntryFoundId");
+            const statusEl = document.getElementById("mmEntryBarcodeStatus");
+            const modeWrap = document.getElementById("mmEntryQtyModeWrap");
+
+            if (foundIdEl) foundIdEl.value = "0";
+            if (modeWrap) modeWrap.classList.add("hidden");
+            setEntryQtyMode("add");
+
+            if (statusEl) {
+                statusEl.className = "barcode-status-box new";
+                statusEl.innerHTML = `<i class="fas fa-sparkles"></i> ✨ کاڵایەکی نوێیە — تکایە ناڤ و نرخ بنڤیسە`;
+                statusEl.classList.remove("hidden");
+            }
+            calcEntryTotalStock();
+        }
+
+        function resetEntryStatus() {
+            const statusEl = document.getElementById("mmEntryBarcodeStatus");
+            if (statusEl) {
+                statusEl.classList.add("hidden");
+                statusEl.innerHTML = "";
+            }
+            const modeWrap = document.getElementById("mmEntryQtyModeWrap");
+            if (modeWrap) modeWrap.classList.add("hidden");
+        }
+
+        function setEntryQtyMode(mode) {
+            mmEntryMode = mode === "set" ? "set" : "add";
+            const btnAdd = document.getElementById("mmBtnModeAdd");
+            const btnSet = document.getElementById("mmBtnModeSet");
+            if (btnAdd) btnAdd.classList.toggle("active", mmEntryMode === "add");
+            if (btnSet) btnSet.classList.toggle("active", mmEntryMode === "set");
+        }
+
+        function clearEntryForm() {
+            const bInp = document.getElementById("mmEntryBarcode");
+            const nInp = document.getElementById("mmEntryName");
+            const pInp = document.getElementById("mmEntryPrice");
+            const cInp = document.getElementById("mmEntryCost");
+            const sPiece = document.getElementById("mmEntryStockPiece");
+            const catInp = document.getElementById("mmEntryCat");
+            const mfrInp = document.getElementById("mmEntryMfr");
+            const fId = document.getElementById("mmEntryFoundId");
+
+            if (bInp) { bInp.value = ""; bInp.focus(); }
+            if (nInp) nInp.value = "";
+            if (pInp) pInp.value = "";
+            if (cInp) cInp.value = "";
+            if (sPiece) sPiece.value = "1";
+            if (catInp) catInp.value = "";
+            if (mfrInp) mfrInp.value = "";
+            if (fId) fId.value = "0";
+
+            // Pack
+            const bPack = document.getElementById("mmEntryBarcodePack");
+            const pPack = document.getElementById("mmEntryPricePack");
+            const cPack = document.getElementById("mmEntryCostPack");
+            const sPack = document.getElementById("mmEntryStockPack");
+            const ppp = document.getElementById("mmEntryPiecesPerPack");
+            if (bPack) bPack.value = "";
+            if (pPack) pPack.value = "";
+            if (cPack) cPack.value = "";
+            if (sPack) sPack.value = "0";
+            if (ppp) ppp.value = "1";
+
+            // Carton
+            const bCarton = document.getElementById("mmEntryBarcodeCarton");
+            const pCarton = document.getElementById("mmEntryPriceCarton");
+            const cCarton = document.getElementById("mmEntryCostCarton");
+            const sCarton = document.getElementById("mmEntryStockCarton");
+            const ppc = document.getElementById("mmEntryPacksPerCarton");
+            if (bCarton) bCarton.value = "";
+            if (pCarton) pCarton.value = "";
+            if (cCarton) cCarton.value = "";
+            if (sCarton) sCarton.value = "0";
+            if (ppc) ppc.value = "1";
+
+            // Advanced
+            const wq = document.getElementById("mmEntryWholesaleQty");
+            const wp = document.getElementById("mmEntryWholesalePrice");
+            const exp = document.getElementById("mmEntryExpiry");
+            const note = document.getElementById("mmEntryNote");
+            if (wq) wq.value = "";
+            if (wp) wp.value = "";
+            if (exp) exp.value = "";
+            if (note) note.value = "";
+
+            const noNameChk = document.getElementById("mmEntryAllowNoName");
+            if (noNameChk) { noNameChk.checked = false; syncAllowNoName(); }
+
+            toggleEntryPack(false);
+            toggleEntryCarton(false);
+            toggleEntryTrack(true);
+            resetEntryStatus();
+            calcEntryTotalStock();
+        }
+
+        function updateLocalCacheAfterEntry(item) {
+            if (!Array.isArray(invProductsCache)) invProductsCache = [];
+            const idx = invProductsCache.findIndex(p => {
+                if (item.id && p.id === item.id) return true;
+                if (item.barcode && p.barcode && String(p.barcode).trim() === String(item.barcode).trim()) return true;
+                return false;
+            });
+
+            if (idx >= 0) {
+                const p = invProductsCache[idx];
+                if (item.name) p.name = item.name;
+                if (item.barcode) p.barcode = item.barcode;
+                if (item.category) p.category = item.category;
+                if (item.manufacturer) p.manufacturer = item.manufacturer;
+                if (item.price !== undefined) p.price = item.price;
+                if (item.cost !== undefined) p.cost = item.cost;
+                if (item.unit_show_pack !== undefined) p.unit_show_pack = item.unit_show_pack;
+                if (item.unit_show_carton !== undefined) p.unit_show_carton = item.unit_show_carton;
+                if (item.barcode_pack) p.barcode_pack = item.barcode_pack;
+                if (item.barcode_carton) p.barcode_carton = item.barcode_carton;
+                if (item.price_pack !== undefined) p.price_pack = item.price_pack;
+                if (item.price_carton !== undefined) p.price_carton = item.price_carton;
+                if (item.cost_pack !== undefined) p.cost_pack = item.cost_pack;
+                if (item.cost_carton !== undefined) p.cost_carton = item.cost_carton;
+                if (item.pieces_per_pack) p.pieces_per_pack = item.pieces_per_pack;
+                if (item.packs_per_carton) p.packs_per_carton = item.packs_per_carton;
+                if (item.finalQty !== undefined) {
+                    p.qty = item.finalQty;
+                } else if (item.qty_mode === "set") {
+                    p.qty = item.qty;
+                } else {
+                    p.qty = (p.qty || 0) + item.qty;
+                }
+            } else {
+                invProductsCache.unshift({
+                    id: item.id || Date.now(),
+                    name: item.name,
+                    barcode: item.barcode,
+                    category: item.category,
+                    manufacturer: item.manufacturer,
+                    price: item.price,
+                    cost: item.cost,
+                    qty: item.qty,
+                    trackStock: item.trackStock !== undefined ? item.trackStock : 1,
+                    unit_show_pack: item.unit_show_pack,
+                    unit_show_carton: item.unit_show_carton,
+                    pieces_per_pack: item.pieces_per_pack,
+                    packs_per_carton: item.packs_per_carton,
+                    barcode_pack: item.barcode_pack,
+                    barcode_carton: item.barcode_carton,
+                    price_pack: item.price_pack,
+                    price_carton: item.price_carton,
+                    cost_pack: item.cost_pack,
+                    cost_carton: item.cost_carton
+                });
+            }
+            refreshInventoryView();
+        }
+
+        function addRecentEntryItem(item) {
+            mmEntryRecent.unshift(item);
+            if (mmEntryRecent.length > 30) mmEntryRecent.pop();
+
+            const cntEl = document.getElementById("mmEntryRecentCount");
+            if (cntEl) cntEl.textContent = mmEntryRecent.length + " کاڵا";
+
+            const listEl = document.getElementById("mmEntryRecentList");
+            if (!listEl) return;
+            listEl.innerHTML = mmEntryRecent.map(it => {
+                const qtyTxt = it.qty_mode === "set" ? ("عەدەد: " + it.qty) : ("+" + it.qty);
+                let extraUnits = "";
+                if (it.unit_show_pack && it.stock_pack) extraUnits += ` · ${it.stock_pack} پاکێت`;
+                if (it.unit_show_carton && it.stock_carton) extraUnits += ` · ${it.stock_carton} کارتۆن`;
+                return `
+                    <div class="entry-recent-item">
+                        <div class="entry-recent-info">
+                            <div class="entry-recent-name">${esc(it.name)}</div>
+                            <div class="entry-recent-meta">
+                                ${it.barcode ? `<span dir="ltr">#${esc(it.barcode)}</span> · ` : ""}
+                                ${it.category ? `<span>${esc(it.category)}</span> · ` : ""}
+                                <span>نرخ: ${formatMoney(it.price)}</span>
+                                ${extraUnits ? `<span style="color:#38bdf8">${extraUnits}</span>` : ""}
+                            </div>
+                        </div>
+                        <div class="entry-recent-badge">${qtyTxt}</div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function saveEntryProduct() {
+            const btn = document.getElementById("mmEntrySubmitBtn");
+            const barcode = (document.getElementById("mmEntryBarcode")?.value || "").trim();
+            const allowNoName = !!(document.getElementById("mmEntryAllowNoName")?.checked);
+            let name = (document.getElementById("mmEntryName")?.value || "").trim();
+            const cat = (document.getElementById("mmEntryCat")?.value || "").trim();
+            const mfr = (document.getElementById("mmEntryMfr")?.value || "").trim();
+
+            const price = parseFloat(document.getElementById("mmEntryPrice")?.value) || 0;
+            const cost = parseFloat(document.getElementById("mmEntryCost")?.value) || 0;
+
+            const stockCalc = calcEntryTotalStock();
+            const totalQty = stockCalc.totalQty;
+            const ppp = stockCalc.ppp;
+            const ppc = stockCalc.ppc;
+
+            const foundId = parseInt(document.getElementById("mmEntryFoundId")?.value, 10) || 0;
+
+            if (!name && allowNoName && barcode) {
+                name = barcode + (price > 0 ? (" · " + formatMoney(price)) : "");
+            } else if (!name && barcode) {
+                name = "کاڵا " + barcode;
+            }
+
+            if (!name) {
+                showRefreshToast("تکایە ناڤێ کاڵای بنڤیسە", true);
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                return;
+            }
+
+            // Pack & Carton specific data
+            const barcodePack = mmEntryShowPack ? (document.getElementById("mmEntryBarcodePack")?.value || "").trim() : "";
+            const pricePack = mmEntryShowPack ? (document.getElementById("mmEntryPricePack")?.value || "") : "";
+            const costPack = mmEntryShowPack ? (document.getElementById("mmEntryCostPack")?.value || "") : "";
+
+            const barcodeCarton = mmEntryShowCarton ? (document.getElementById("mmEntryBarcodeCarton")?.value || "").trim() : "";
+            const priceCarton = mmEntryShowCarton ? (document.getElementById("mmEntryPriceCarton")?.value || "") : "";
+            const costCarton = mmEntryShowCarton ? (document.getElementById("mmEntryCostCarton")?.value || "") : "";
+
+            // Advanced data
+            const wholesaleQty = parseInt(document.getElementById("mmEntryWholesaleQty")?.value, 10) || 0;
+            const wholesalePrice = parseFloat(document.getElementById("mmEntryWholesalePrice")?.value) || 0;
+            const expiry = (document.getElementById("mmEntryExpiry")?.value || "").trim();
+            const minStock = parseInt(document.getElementById("mmEntryMinStock")?.value, 10) || 5;
+            const note = (document.getElementById("mmEntryNote")?.value || "").trim();
+            const forSale = document.getElementById("mmEntryForSale") ? (document.getElementById("mmEntryForSale").checked ? 1 : 0) : 1;
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> چاوەڕێبە...';
+            }
+
+            const itemPayload = {
+                id: foundId,
+                barcode: barcode,
+                name: name,
+                category: cat,
+                manufacturer: mfr,
+                supplier: "Direct Store",
+                price: price,
+                cost: cost,
+                qty: totalQty,
+                stock_piece: stockCalc.stockPiece,
+                stock_pack: stockCalc.stockPack,
+                stock_carton: stockCalc.stockCarton,
+                qty_mode: mmEntryMode,
+                trackStock: mmEntryTrackStock ? 1 : 0,
+                unit_show_pack: mmEntryShowPack ? 1 : 0,
+                unit_show_carton: mmEntryShowCarton ? 1 : 0,
+                pieces_per_pack: ppp,
+                packs_per_carton: ppc,
+                barcode_pack: barcodePack,
+                barcode_carton: barcodeCarton,
+                price_pack: pricePack !== "" ? parseFloat(pricePack) : null,
+                cost_pack: costPack !== "" ? parseFloat(costPack) : null,
+                price_carton: priceCarton !== "" ? parseFloat(priceCarton) : null,
+                cost_carton: costCarton !== "" ? parseFloat(costCarton) : null,
+                wholesaleQty: wholesaleQty,
+                wholesalePrice: wholesalePrice,
+                expiry: expiry,
+                minStock: minStock,
+                note: note,
+                forSale: forSale,
+                added_at: Date.now()
+            };
+
+            let savedLocally = false;
+            let savedCloud = false;
+
+            const posBase = guessPosBase();
+            if (posBase && window.location.protocol !== "https:") {
+                try {
+                    const fd = new FormData();
+                    fd.append("action", "save_product");
+                    fd.append("product_id", itemPayload.id);
+                    fd.append("barcode", itemPayload.barcode);
+                    fd.append("name", itemPayload.name);
+                    fd.append("price", itemPayload.price);
+                    fd.append("cost", itemPayload.cost);
+                    fd.append("qty", itemPayload.qty);
+                    fd.append("qty_mode", itemPayload.qty_mode);
+                    fd.append("category", itemPayload.category);
+                    fd.append("manufacturer", itemPayload.manufacturer);
+                    fd.append("supplier", itemPayload.supplier);
+                    fd.append("trackStock", itemPayload.trackStock);
+                    fd.append("unit_show_pack", itemPayload.unit_show_pack);
+                    fd.append("unit_show_carton", itemPayload.unit_show_carton);
+                    fd.append("pieces_per_pack", itemPayload.pieces_per_pack);
+                    fd.append("packs_per_carton", itemPayload.packs_per_carton);
+                    fd.append("barcode_pack", itemPayload.barcode_pack);
+                    fd.append("barcode_carton", itemPayload.barcode_carton);
+                    if (itemPayload.price_pack != null) fd.append("price_pack", itemPayload.price_pack);
+                    if (itemPayload.cost_pack != null) fd.append("cost_pack", itemPayload.cost_pack);
+                    if (itemPayload.price_carton != null) fd.append("price_carton", itemPayload.price_carton);
+                    if (itemPayload.cost_carton != null) fd.append("cost_carton", itemPayload.cost_carton);
+                    if (itemPayload.wholesaleQty) fd.append("wholesaleQty", itemPayload.wholesaleQty);
+                    if (itemPayload.wholesalePrice) fd.append("wholesalePrice", itemPayload.wholesalePrice);
+                    if (itemPayload.expiry) fd.append("expiry", itemPayload.expiry);
+                    if (itemPayload.minStock) fd.append("minStock", itemPayload.minStock);
+                    if (itemPayload.note) fd.append("note", itemPayload.note);
+                    fd.append("forSale", itemPayload.forSale);
+
+                    const res = await fetch(posBase + "/mobile_entry.php", {
+                        method: "POST",
+                        body: fd
+                    });
+                    const json = await res.json();
+                    if (json && json.status === "success") {
+                        savedLocally = true;
+                        if (json.id) itemPayload.id = json.id;
+                        if (json.qty !== undefined) itemPayload.finalQty = json.qty;
+                    }
+                } catch(e) {}
+            }
+
+            if (activeChannelId && db) {
+                try {
+                    const invRef = doc(db, "pos_mobile_inventory", activeChannelId);
+                    const snap = await getDoc(invRef);
+                    let queue = [];
+                    if (snap.exists() && Array.isArray(snap.data()?.pending_items)) {
+                        queue = snap.data().pending_items;
+                    }
+                    if (!savedLocally) {
+                        queue.push(itemPayload);
+                        await updateDoc(invRef, { pending_items: queue });
+                        savedCloud = true;
+                    }
+                } catch(e) {
+                    console.warn("Cloud queue error:", e);
+                }
+            }
+
+            updateLocalCacheAfterEntry(itemPayload);
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> <span>تۆمارکرن د سیستەمی دا</span>';
+            }
+
+            playChime(true);
+            if (navigator.vibrate) navigator.vibrate([60, 40, 100]);
+
+            const syncMsg = savedLocally ? "تۆمارکرا ڕاستەوخۆ د سیستەمێ کاشێری دا" : (savedCloud ? "تۆمارکرا د کلاودێ دا (پەیوەست دکەت ب کاشێری)" : "تۆمارکرا ل مۆبایلێ");
+            showRefreshToast(syncMsg, false);
+
+            addRecentEntryItem(itemPayload);
+            clearEntryForm();
+        }
+
+        function initMobileEntry() {
+            populateEntryCategories();
+            populateEntryManufacturers();
+
+            const barcodeInput = document.getElementById("mmEntryBarcode");
+            if (barcodeInput) {
+                barcodeInput.addEventListener("input", () => {
+                    clearTimeout(mmEntryLookupTimer);
+                    const val = barcodeInput.value.trim();
+                    if (val.length >= 2) {
+                        mmEntryLookupTimer = setTimeout(() => {
+                            lookupEntryBarcode(val);
+                        }, 250);
+                    } else {
+                        resetEntryStatus();
+                    }
+                });
+            }
+
+            const scanBtn = document.getElementById("mmEntryScanBtn");
+            if (scanBtn) {
+                scanBtn.addEventListener("click", () => {
+                    openInvScanner("entry_piece");
+                });
+            }
+
+            const scanPackBtn = document.getElementById("mmEntryScanPackBtn");
+            if (scanPackBtn) {
+                scanPackBtn.addEventListener("click", () => {
+                    openInvScanner("entry_pack");
+                });
+            }
+
+            const scanCartonBtn = document.getElementById("mmEntryScanCartonBtn");
+            if (scanCartonBtn) {
+                scanCartonBtn.addEventListener("click", () => {
+                    openInvScanner("entry_carton");
+                });
+            }
+
+            const autoBtn = document.getElementById("mmEntryAutoBarcodeBtn");
+            if (autoBtn) {
+                autoBtn.addEventListener("click", () => {
+                    autoGenerateBarcode();
+                });
+            }
+
+            const noNameChk = document.getElementById("mmEntryAllowNoName");
+            if (noNameChk) {
+                noNameChk.addEventListener("change", syncAllowNoName);
+            }
+
+            const togglePackBtn = document.getElementById("mmTogglePackBtn");
+            if (togglePackBtn) {
+                togglePackBtn.addEventListener("click", () => toggleEntryPack());
+            }
+
+            const toggleCartonBtn = document.getElementById("mmToggleCartonBtn");
+            if (toggleCartonBtn) {
+                toggleCartonBtn.addEventListener("click", () => toggleEntryCarton());
+            }
+
+            const toggleTrackBtn = document.getElementById("mmToggleTrackBtn");
+            if (toggleTrackBtn) {
+                toggleTrackBtn.addEventListener("click", () => toggleEntryTrack());
+            }
+
+            ["mmEntryPiecesPerPack", "mmEntryPacksPerCarton", "mmEntryStockPiece", "mmEntryStockPack", "mmEntryStockCarton"].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener("input", calcEntryTotalStock);
+            });
+
+            const btnAdd = document.getElementById("mmBtnModeAdd");
+            const btnSet = document.getElementById("mmBtnModeSet");
+            if (btnAdd) btnAdd.addEventListener("click", () => setEntryQtyMode("add"));
+            if (btnSet) btnSet.addEventListener("click", () => setEntryQtyMode("set"));
+
+            const resetBtn = document.getElementById("mmEntryResetBtn");
+            if (resetBtn) resetBtn.addEventListener("click", clearEntryForm);
+
+            const form = document.getElementById("mmEntryForm");
+            if (form) {
+                form.addEventListener("submit", (e) => {
+                    e.preventDefault();
+                    saveEntryProduct();
+                });
             }
         }
 
@@ -2732,8 +3533,13 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         document.getElementById("authForm").addEventListener("submit", (ev) => { ev.preventDefault(); doLogin(); });
         if (tabHomeBtn) tabHomeBtn.addEventListener("click", () => switchMobileTab("home"));
         if (tabDashBtn) tabDashBtn.addEventListener("click", () => switchMobileTab("dash"));
+        if (tabEntryBtn) tabEntryBtn.addEventListener("click", () => switchMobileTab("entry"));
         if (tabInvBtn) tabInvBtn.addEventListener("click", () => switchMobileTab("inv"));
         if (tabDebtBtn) tabDebtBtn.addEventListener("click", () => switchMobileTab("debt"));
+        const homeGoEntry = document.getElementById("homeGoEntry");
+        if (homeGoEntry) homeGoEntry.addEventListener("click", () => switchMobileTab("entry"));
+        const invOpenEntryBtn = document.getElementById("invOpenEntryBtn");
+        if (invOpenEntryBtn) invOpenEntryBtn.addEventListener("click", () => switchMobileTab("entry"));
         const homeGoDash = document.getElementById("homeGoDash");
         const homeGoInv = document.getElementById("homeGoInv");
         const homeGoDebt = document.getElementById("homeGoDebt");
@@ -2788,6 +3594,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 if (e.target === invScannerModal) closeInvScanner();
             });
         }
+        if (typeof initMobileEntry === "function") initMobileEntry();
 
         let deferredInstallPrompt = null;
         const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
@@ -2990,6 +3797,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const homeEmail = document.getElementById("homeEmail");
             if (homeEmail) homeEmail.textContent = user.email;
             const savedTab = (function () {
+                if (location.hash === "#entry" || location.hash === "#inv" || location.hash === "#dash" || location.hash === "#debt") {
+                    return location.hash.replace("#", "");
+                }
                 try {
                     return localStorage.getItem("pos_mobile_tab") || "home";
                 } catch (e) { return "home"; }
@@ -2998,6 +3808,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 savedTab === "backup" ? "backup" :
                 savedTab === "debt" ? "debt" :
                 savedTab === "inv" ? "inv" :
+                savedTab === "entry" ? "entry" :
                 savedTab === "dash" ? "dash" : "home"
             );
             const channelId = user.email.toLowerCase();
