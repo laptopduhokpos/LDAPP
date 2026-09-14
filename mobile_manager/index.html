@@ -12,13 +12,13 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <title>Laptop Duhok POS — MOBILE APP v2.18.48</title>
-    <script>window.MM_APP_VERSION = "2.18.48";</script>
-    <link rel="manifest" href="manifest.json?v=2.18.48" />
+    <title>Laptop Duhok POS — MOBILE APP v2.18.51</title>
+    <script>window.MM_APP_VERSION = "2.18.51";</script>
+    <link rel="manifest" href="manifest.json?v=2.18.51" />
     <link rel="icon" href="assets/icons/favicon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" sizes="180x180">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <link rel="stylesheet" href="css/mm-app.css?v=2.18.48" />
+    <link rel="stylesheet" href="css/mm-app.css?v=2.18.51" />
 
 </head>
 <body>
@@ -35,13 +35,13 @@
                 </div>
                 <div>
                     <p class="brand-title">Laptop Duhok POS</p>
-                    <p class="brand-sub">MOBILE APP <span class="ver-badge" dir="ltr">v2.18.48</span></p>
+                    <p class="brand-sub">MOBILE APP <span class="ver-badge" dir="ltr">v2.18.51</span></p>
                 </div>
             </div>
             <div class="topbar-actions">
                 <div id="topbarTokenChip" class="topbar-token-chip hidden" role="button" tabindex="0" title="خاڵێن مۆبایل مانجێر (Tokens)">
                     <i class="fas fa-coins"></i>
-                    <span id="topbarTokenVal">150</span>
+                    <span id="topbarTokenVal">300</span>
                 </div>
                 <button type="button" id="refreshBtn" class="refresh-btn hidden" aria-label="نوێکردنەوە" title="Refresh">
                     <i class="fas fa-arrows-rotate"></i>
@@ -107,24 +107,70 @@
                         <div class="mm-token-head">
                             <div class="mm-token-score">
                                 <span class="mm-token-score-dot"></span>
-                                <span id="mmTokenScoreText" dir="ltr">0 / 150</span>
+                                <span id="mmTokenScoreText" dir="ltr">0 / 300</span>
                             </div>
                             <span class="mm-token-period-title">سنوورا ۳۰ ڕۆژانە</span>
-                            <span id="mmTokenPlanBadge" class="mm-token-plan-badge">Basic · 150/30 ڕۆژ</span>
+                            <span id="mmTokenPlanBadge" class="mm-token-plan-badge">Basic · 300/30 ڕۆژ</span>
                         </div>
                         <div class="mm-token-bar-track">
                             <div id="mmTokenBarFill" class="mm-token-bar-fill" style="width: 0%;"></div>
                         </div>
                         <div class="mm-token-foot">
                             <span id="mmTokenResetHint">نوێدەبێتەوە ... · 30 ڕۆژ</span>
-                            <span id="mmTokenRemainingHint" class="mm-token-remaining-hint">150 ماوە</span>
+                            <span id="mmTokenRemainingHint" class="mm-token-remaining-hint">300 ماوە</span>
                         </div>
-                        <details id="mmTokenPacksDetails" class="mm-token-packs-details">
-                            <summary class="mm-token-packs-summary">
-                                <span><i class="fas fa-coins" style="color:#fbbf24;"></i> زیاتر خاڵ · کۆدی چالاککردن</span>
-                                <i class="fas fa-chevron-down mm-token-chevron"></i>
-                            </summary>
-                            <div class="mm-token-packs-content">
+
+                        <!-- Sub-navigation Tabs inside Token Card -->
+                        <div class="mm-token-subtabs">
+                            <button type="button" class="mm-token-subtab-btn active" data-tab="analytics">
+                                <i class="fas fa-chart-pie"></i> <span>شیکاری (% چەند)</span>
+                            </button>
+                            <button type="button" class="mm-token-subtab-btn" data-tab="history">
+                                <i class="fas fa-clock-rotate-left"></i> <span>مێژووی کرداران</span>
+                            </button>
+                            <button type="button" class="mm-token-subtab-btn" data-tab="packs">
+                                <i class="fas fa-coins"></i> <span>کڕینی خاڵ</span>
+                            </button>
+                            <button type="button" class="mm-token-subtab-btn" data-tab="rules">
+                                <i class="fas fa-gavel"></i> <span>یاساکان</span>
+                            </button>
+                        </div>
+
+                        <!-- VIEW 1: Analytics & Percentage Breakdown (چەند ژ ١٠٠ ل کیڤە چوونە) -->
+                        <div id="mmTokenViewAnalytics" class="mm-token-tab-view">
+                            <div class="mm-analytics-summary-box">
+                                <div class="mm-analytics-title-row">
+                                    <span class="mm-analytics-title"><i class="fas fa-chart-simple" style="color:#6366f1;"></i> خاڵێن مەسرەفبووی (% چەند ژ ١٠٠)</span>
+                                    <span id="mmAnalyticsTotalUsed" class="mm-analytics-badge-total">کۆی: ٠ خاڵ</span>
+                                </div>
+                                <div id="mmCatBreakdownList" class="mm-cat-breakdown-list">
+                                    <!-- Dynamic rows generated by JS: Add, Edit, Sales, Debt, Inv -->
+                                </div>
+                            </div>
+                            <div class="mm-transparency-box">
+                                <div class="mm-transparency-head"><i class="fas fa-shield-halved"></i> گرەنتییا شەفافیەتێ: ڕیفرێش و بینین ۱۰۰٪ خۆڕاییە!</div>
+                                <p class="mm-transparency-text">
+                                    هەرچەندە کلیک ل سەر ڕیفرێش (Refresh) بکەیت یان داتایان ببینی، <strong>هیچ خاڵێک کەم نابێت (٠ خاڵ)</strong>. خاڵ تەنها لە کاتی ئەنجامدانی کاردا دەڕوات: ئیدخالکردنی کاڵای نوێ (٢ خاڵ)، دەستکاری (١ خاڵ)، و فرۆشتنی ڕۆژانە تەنها ١ خاڵ بۆ هەموو ڕۆژەکە.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- VIEW 2: Transaction History Log -->
+                        <div id="mmTokenViewHistory" class="mm-token-tab-view" style="display:none;">
+                            <div class="mm-analytics-summary-box">
+                                <div class="mm-analytics-title-row">
+                                    <span class="mm-analytics-title"><i class="fas fa-receipt" style="color:#38bdf8;"></i> تۆمارا کریارێن خاڵان</span>
+                                    <span id="mmHistoryCountBadge" class="mm-analytics-badge-total">٠ کردار</span>
+                                </div>
+                                <div id="mmTokenHistoryList" class="mm-history-list">
+                                    <div class="mm-history-empty"><i class="fas fa-circle-check" style="color:#10b981;font-size:1.5rem;margin-bottom:6px;display:block;"></i> هێشتا هیچ کردارەک ئەنجام نەدایە</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- VIEW 3: Token Packs & Activation Code -->
+                        <div id="mmTokenViewPacks" class="mm-token-tab-view" style="display:none;">
+                            <div class="mm-token-packs-content" style="margin-top:4px;">
                                 <div class="mm-token-redeem-row">
                                     <input type="text" id="mmTokenCodeInput" placeholder="کۆدی زیادکردنی خاڵ بنووسە..." dir="ltr" autocomplete="off" />
                                     <button type="button" id="mmTokenRedeemBtn" class="btn-token-redeem"><i class="fas fa-check"></i> چالاککردن</button>
@@ -151,19 +197,27 @@
                                         <div class="mm-pack-total">= 650 کۆی</div>
                                     </div>
                                 </div>
-                                <div class="mm-token-rules-box">
-                                    <div class="mm-token-rules-title"><i class="fas fa-gavel" style="color:#38bdf8;"></i> یاسایێن مەسرەفکرنا خاڵان</div>
-                                    <ul class="mm-token-rules-list">
-                                        <li><span>ئیدخالکرنا کاڵایێ نوێ (Add):</span> <strong class="badge-cost">٢ خاڵ</strong></li>
-                                        <li><span>دەستکاریکرنا کاڵای (Edit):</span> <strong class="badge-cost">١ خاڵ</strong></li>
-                                        <li><span>داتایێن فرۆتنێ (Daily Sales):</span> <strong class="badge-cost">١٠ / ٢٠ / ٣٠ خاڵ</strong> (کێم / وەسەت / گەلەک)</li>
-                                        <li><span>داتایێن دەینان (Debt):</span> <strong class="badge-cost">٥ / ١٠ / ١٥ خاڵ</strong></li>
-                                        <li><span>کۆگەهـ و مەخزەن (Warehouse):</span> <strong class="badge-cost">٥ / ١٠ / ١٥ خاڵ</strong></li>
-                                        <li><span>دیاریا مانگانە:</span> <strong style="color:#10b981;font-weight:800;">١٥٠ خاڵ دیاری هەر ٣٠ ڕۆژان</strong></li>
-                                    </ul>
+                            </div>
+                        </div>
+
+                        <!-- VIEW 4: Rules -->
+                        <div id="mmTokenViewRules" class="mm-token-tab-view" style="display:none;">
+                            <div class="mm-token-rules-box" style="margin-top:4px;">
+                                <div class="mm-token-rules-title"><i class="fas fa-gavel" style="color:#38bdf8;"></i> یاسایێن شەفاف و دادپەروەری مەسرەفکرنا خاڵان</div>
+                                <ul class="mm-token-rules-list">
+                                    <li><span>ئیدخالکرنا کاڵایێ نوێ (Add Item):</span> <strong class="badge-cost">٢ خاڵ</strong></li>
+                                    <li><span>دەستکاریکرنا کاڵای (Edit Item):</span> <strong class="badge-cost">١ خاڵ</strong></li>
+                                    <li><span>فرۆشتنی ڕۆژانە (Daily Sales Sync):</span> <strong class="badge-cost">١ خاڵ بۆ هەموو ڕۆژەکە</strong></li>
+                                    <li><span>بینینی قەرز و حسابات (Debt):</span> <strong style="color:#10b981;font-weight:800;">خۆڕایی (٠ خاڵ)</strong></li>
+                                    <li><span>کۆگەهـ و مەخزەن (Warehouse):</span> <strong style="color:#10b981;font-weight:800;">خۆڕایی (٠ خاڵ)</strong></li>
+                                    <li><span>ڕیفرێش و نوێکردنەوە (Refresh):</span> <strong style="color:#10b981;font-weight:800;">خۆڕایی (٠ خاڵ)</strong></li>
+                                    <li><span>دیاریا مانگانە:</span> <strong style="color:#10b981;font-weight:800;">٣٠٠ خاڵ دیاری هەر ٣٠ ڕۆژان</strong></li>
+                                </ul>
+                                <div style="margin-top:10px;font-size:0.72rem;color:var(--muted);line-height:1.5;">
+                                    * تێبینی گرنگ: ڕیفرێشکردنی بەرنامە و بینینی داتاکان ١٠٠٪ خۆڕاییە و هیچ خاڵێک ناکێشێتەوە. دیاری مانگانە ۳۰۰ خاڵە و بەشی هەموو مانگەکە دەکات بە خۆشی.
                                 </div>
                             </div>
-                        </details>
+                        </div>
                     </div>
 
                     <div id="mmShopsSection" class="mm-shops-section">
@@ -836,7 +890,7 @@
             measurementId: "G-H2WDDPXK7N"
         };
     </script>
-    <script type="module" src="js/mm-app.js?v=2.18.47"></script>
+    <script type="module" src="js/mm-app.js?v=2.18.51"></script>
 
 </body>
 </html>

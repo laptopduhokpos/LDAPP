@@ -1628,9 +1628,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             }
             refreshDebtView();
             bindDebtFilters();
-            if (!opts.fromCache && data && Array.isArray(data.customers) && data.customers.length > 0) {
-                mmHandleDebtTokenDeduction(data);
-            }
+            // Viewing debt is 100% free - zero token deduction
             if (activeChannelId && !opts.fromCache) {
                 mmSnapSaveDebounced(activeChannelId, "debt", data);
             }
@@ -2854,6 +2852,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
 
             const isEdit = foundId > 0;
             const tokenCost = isEdit ? 1 : 2;
+            const tokenCategory = isEdit ? "entry_edit" : "entry_add";
             const actionLabel = isEdit ? "دەستکاری (Edit)" : "ئیدخالکرنا کاڵایێ نوێ (Add)";
 
             if (!mmCanSpendTokens(tokenCost, actionLabel)) {
@@ -2973,7 +2972,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             }
 
             updateLocalCacheAfterEntry(itemPayload);
-            mmDeductTokens(tokenCost, actionLabel, { name: itemPayload.name, barcode: itemPayload.barcode });
+            const tokenDetail = (itemPayload.name || "") + (itemPayload.barcode ? " (" + itemPayload.barcode + ")" : "");
+            mmDeductTokens(tokenCategory, tokenCost, actionLabel, tokenDetail);
 
             if (btn) {
                 btn.disabled = false;
@@ -3349,9 +3349,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             refreshInventoryView();
             bindInventoryFilters();
             bindInvSubTabs();
-            if (!opts.fromCache && data && Array.isArray(data.products) && data.products.length > 0) {
-                mmHandleInventoryTokenDeduction(data);
-            }
+            // Viewing inventory is 100% free - zero token deduction
             if (typeof populateEntryCategories === "function") populateEntryCategories();
             if (typeof populateEntryManufacturers === "function") populateEntryManufacturers();
             if (data.debtSnapshot && (data.debtSnapshot.summary || data.debtSnapshot.companies || data.debtSnapshot.customers)) {
@@ -3396,7 +3394,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const priv = mmPrivacyFromDoc(data);
             setMobileAmountMeta(data);
             const sales = priv.hideSalesDetail ? [] : (Array.isArray(data.sales) ? data.sales : []);
-            if (!opts.fromCache && Array.isArray(data.sales) && data.sales.length > 0) {
+            // NEVER deduct tokens during refresh, pull-to-refresh, or from cache
+            if (!opts.fromCache && !opts.isRefresh && !refreshBusy && Array.isArray(data.sales) && data.sales.length > 0) {
                 mmHandleDailySalesTokenDeduction(data, dayKey);
             }
             const ret = Array.isArray(data.returns) ? data.returns : [];
@@ -3527,10 +3526,10 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                     readDoc(doc(db, "pos_mobile_debt", activeChannelId)),
                     readDoc(doc(db, "pos_mobile_daily_detail", activeChannelId, "days", dayKey))
                 ]);
-                applyDashboardData(snaps[0].exists() ? snaps[0].data() : null, { silent: true });
-                applyInventoryData(snaps[1].exists() ? snaps[1].data() : null, { silent: true });
-                applyDebtData(snaps[2].exists() ? snaps[2].data() : null, { silent: true });
-                applyDetailData(snaps[3].exists() ? snaps[3].data() : null, dayKey, { silent: true });
+                applyDashboardData(snaps[0].exists() ? snaps[0].data() : null, { silent: true, isRefresh: true });
+                applyInventoryData(snaps[1].exists() ? snaps[1].data() : null, { silent: true, isRefresh: true });
+                applyDebtData(snaps[2].exists() ? snaps[2].data() : null, { silent: true, isRefresh: true });
+                applyDetailData(snaps[3].exists() ? snaps[3].data() : null, dayKey, { silent: true, isRefresh: true });
                 if (opts.forceServer) await mmRefreshAllHubs();
                 mmUpdateConnectionStatus({ live: true });
                 if (!opts.silent) showRefreshToast("داتا نوێکرایەوە ✓", false);
@@ -3957,6 +3956,22 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             return "pos_mm_tokens_" + (channelId || activeChannelId || "default").toLowerCase();
         }
 
+        function mmFormatTokenTime(ts) {
+            if (!ts) return "";
+            const d = new Date(ts);
+            const now = new Date();
+            const isToday = d.toDateString() === now.toDateString();
+            const hours = String(d.getHours()).padStart(2, "0");
+            const mins = String(d.getMinutes()).padStart(2, "0");
+            const timeOnly = `${hours}:${mins}`;
+            if (isToday) return `ئەمڕۆ ${timeOnly}`;
+            const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            if (d.toDateString() === yesterday.toDateString()) return `دوێنێ ${timeOnly}`;
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return `${day}/${month} ${timeOnly}`;
+        }
+
         function mmLoadTokenState(channelId) {
             const k = mmGetTokenStorageKey(channelId);
             let state = null;
@@ -3968,27 +3983,51 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const now = Date.now();
             const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
 
-            if (!state || typeof state !== "object") {
+            if (!state || typeof state !== "object" || state.schemaVer !== 4) {
+                const redeemed = (state && Array.isArray(state.redeemedCodes)) ? state.redeemedCodes : [];
+                const bonus = (state && typeof state.bonusLimit === "number") ? state.bonusLimit : 0;
                 state = {
+                    schemaVer: 4,
                     tier: "basic",
-                    baseLimit: 150,
-                    bonusLimit: 0,
+                    baseLimit: 300,
+                    bonusLimit: bonus,
                     used: 0,
                     periodStart: now,
                     resetsOn: now + thirtyDaysMs,
-                    redeemedCodes: [],
-                    lastSalesSyncKey: "",
-                    lastDebtSyncKey: "",
-                    lastInvSyncKey: ""
+                    redeemedCodes: redeemed,
+                    chargedSalesDates: {},
+                    breakdown: {
+                        entry_add: 0,
+                        entry_edit: 0,
+                        sales: 0,
+                        debt: 0,
+                        inv: 0
+                    },
+                    history: [{
+                        time: now,
+                        type: "plus",
+                        cost: 300,
+                        category: "reward",
+                        title: "دیاریا مانگانە (۳۰۰ خاڵ)",
+                        meta: "۳۰۰ خاڵی دیاری بۆ ۳۰ ڕۆژان — ڕیفرێش و بینین ١٠٠٪ خۆڕاییە"
+                    }]
                 };
+                mmSaveTokenState(state, channelId);
             } else {
-                if (typeof state.baseLimit !== "number") state.baseLimit = 150;
+                if (typeof state.baseLimit !== "number" || state.baseLimit < 300) state.baseLimit = 300;
                 if (typeof state.bonusLimit !== "number") state.bonusLimit = 0;
                 if (typeof state.used !== "number") state.used = 0;
                 if (!Array.isArray(state.redeemedCodes)) state.redeemedCodes = [];
+                if (!state.chargedSalesDates || typeof state.chargedSalesDates !== "object") state.chargedSalesDates = {};
                 if (!state.resetsOn || typeof state.resetsOn !== "number") {
                     state.periodStart = now;
                     state.resetsOn = now + thirtyDaysMs;
+                }
+                if (!state.breakdown || typeof state.breakdown !== "object") {
+                    state.breakdown = { entry_add: 0, entry_edit: 0, sales: 0, debt: 0, inv: 0 };
+                }
+                if (!Array.isArray(state.history)) {
+                    state.history = [];
                 }
             }
 
@@ -3997,9 +4036,20 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 state.periodStart = now;
                 state.resetsOn = now + thirtyDaysMs;
                 state.used = 0;
+                state.chargedSalesDates = {};
+                state.breakdown = { entry_add: 0, entry_edit: 0, sales: 0, debt: 0, inv: 0 };
+                if (!Array.isArray(state.history)) state.history = [];
+                state.history.unshift({
+                    time: now,
+                    type: "plus",
+                    cost: state.baseLimit || 300,
+                    category: "reward",
+                    title: "دیاریا مانگانە (Monthly Gift)",
+                    meta: `${state.baseLimit || 300} خاڵی خۆڕایی بۆ ۳۰ ڕۆژی نوێ`
+                });
                 mmSaveTokenState(state, channelId);
                 setTimeout(() => {
-                    showRefreshToast("🎉 پیرۆزە! ۱۵۰ خاڵی دیاریا مانگانە نوێ بووەوە!", false);
+                    showRefreshToast(`🎉 پیرۆزە! ${state.baseLimit || 300} خاڵی دیاریا مانگانە نوێ بووەوە!`, false);
                     playChime(true);
                 }, 1000);
             }
@@ -4045,7 +4095,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
 
             const planBadge = document.getElementById("mmTokenPlanBadge");
             if (planBadge) {
-                const planName = st.tier === "pro" ? "Pro · 300/30 ڕۆژ" : "Basic · 150/30 ڕۆژ";
+                const planName = st.tier === "pro" ? "Pro · 600/30 ڕۆژ" : "Basic · 300/30 ڕۆژ";
                 planBadge.textContent = planName;
             }
 
@@ -4061,6 +4111,90 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 remHint.textContent = `${remaining} ماوە`;
                 remHint.style.color = remaining <= 10 ? "#ef4444" : "#38bdf8";
             }
+
+            // 1. Render Analytics Breakdown (% چەند ژ ١٠٠ ل کیڤە چوونە)
+            const totalUsedEl = document.getElementById("mmAnalyticsTotalUsed");
+            if (totalUsedEl) totalUsedEl.textContent = `کۆی مەسرەفبوو: ${used} خاڵ`;
+
+            const breakdownListEl = document.getElementById("mmCatBreakdownList");
+            if (breakdownListEl) {
+                if (used <= 0) {
+                    breakdownListEl.innerHTML = `
+                        <div class="detail-empty" style="padding:14px 6px;text-align:center;color:var(--muted);font-size:0.8rem;">
+                            <i class="fas fa-sparkles" style="color:#10b981;display:block;font-size:1.4rem;margin-bottom:6px;"></i>
+                            هێشتا هیچ خاڵێک مەسرەف نەکراوە (٠%) — هەموو <strong>${total}</strong> خاڵ ماون!
+                        </div>
+                    `;
+                } else {
+                    const catConfigs = [
+                        { key: "entry_add", label: "ئیدخالکرنا کاڵایێ نوێ (Add Item)", icon: '<i class="fas fa-plus-circle" style="color:#10b981;"></i>', cls: "entry-add" },
+                        { key: "entry_edit", label: "دەستکاریکرنا کاڵایان (Edit Item)", icon: '<i class="fas fa-pen-to-square" style="color:#0ea5e9;"></i>', cls: "entry-edit" },
+                        { key: "sales", label: "داتایێن فرۆتنێ (Daily Sales Sync)", icon: '<i class="fas fa-chart-line" style="color:#f59e0b;"></i>', cls: "sales" },
+                        { key: "debt", label: "قەرز و حسابات (Debt Sync)", icon: '<i class="fas fa-scale-balanced" style="color:#ef4444;"></i>', cls: "debt" },
+                        { key: "inv", label: "کۆگەهـ و مەخزەن (Warehouse Sync)", icon: '<i class="fas fa-boxes-stacked" style="color:#a855f7;"></i>', cls: "inv" }
+                    ];
+
+                    const bd = st.breakdown || {};
+                    breakdownListEl.innerHTML = catConfigs.map(cat => {
+                        const pts = bd[cat.key] || 0;
+                        const pctOfUsed = used > 0 ? Math.round((pts / used) * 100) : 0;
+                        return `
+                            <div class="mm-cat-item">
+                                <div class="mm-cat-header">
+                                    <span class="mm-cat-label">${cat.icon} <span>${cat.label}</span></span>
+                                    <div class="mm-cat-meta">
+                                        <span class="mm-cat-pts">${pts} خاڵ</span>
+                                        <span class="mm-cat-pct-badge pct-${cat.cls}">${pctOfUsed}%</span>
+                                    </div>
+                                </div>
+                                <div class="mm-cat-bar">
+                                    <div class="mm-cat-bar-fill bar-${cat.cls}" style="width: ${pctOfUsed}%;"></div>
+                                </div>
+                            </div>
+                        `;
+                    }).join("");
+                }
+            }
+
+            // 2. Render Transaction History Log
+            const historyBadge = document.getElementById("mmHistoryCountBadge");
+            const historyListEl = document.getElementById("mmTokenHistoryList");
+            const hist = Array.isArray(st.history) ? st.history : [];
+            if (historyBadge) historyBadge.textContent = `${hist.length} کردار`;
+            if (historyListEl) {
+                if (!hist.length) {
+                    historyListEl.innerHTML = `<div class="mm-history-empty"><i class="fas fa-circle-check" style="color:#10b981;font-size:1.5rem;margin-bottom:6px;display:block;"></i> هێشتا هیچ کردارەک ئەنجام نەدایە</div>`;
+                } else {
+                    historyListEl.innerHTML = hist.map(item => {
+                        const isPlus = item.type === "plus";
+                        const sign = isPlus ? "+" : "−";
+                        const costCls = isPlus ? "plus" : "minus";
+                        const timeFormatted = mmFormatTokenTime(item.time);
+                        let iconHtml = '<i class="fas fa-coins" style="color:#fbbf24;"></i>';
+                        if (item.category === "entry_add") iconHtml = '<i class="fas fa-plus-circle" style="color:#10b981;"></i>';
+                        else if (item.category === "entry_edit") iconHtml = '<i class="fas fa-pen-to-square" style="color:#0ea5e9;"></i>';
+                        else if (item.category === "sales") iconHtml = '<i class="fas fa-chart-line" style="color:#f59e0b;"></i>';
+                        else if (item.category === "debt") iconHtml = '<i class="fas fa-scale-balanced" style="color:#ef4444;"></i>';
+                        else if (item.category === "inv") iconHtml = '<i class="fas fa-boxes-stacked" style="color:#a855f7;"></i>';
+                        else if (item.category === "reward") iconHtml = '<i class="fas fa-gift" style="color:#10b981;"></i>';
+                        else if (item.category === "redeem") iconHtml = '<i class="fas fa-key" style="color:#a855f7;"></i>';
+
+                        return `
+                            <div class="mm-history-item">
+                                <div style="font-size:1.1rem;display:flex;align-items:center;min-width:24px;">${iconHtml}</div>
+                                <div class="mm-history-info">
+                                    <div class="mm-history-title">${esc(item.title || "کردار")}</div>
+                                    <div class="mm-history-meta">
+                                        <span><i class="far fa-clock"></i> ${timeFormatted}</span>
+                                        ${item.meta ? `<span>· ${esc(item.meta)}</span>` : ""}
+                                    </div>
+                                </div>
+                                <div class="mm-history-cost ${costCls}">${sign}${item.cost} خاڵ</div>
+                            </div>
+                        `;
+                    }).join("");
+                }
+            }
         }
 
         function mmCanSpendTokens(cost, actionName) {
@@ -4073,12 +4207,37 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             return true;
         }
 
-        function mmDeductTokens(cost, actionName, meta) {
+        function mmDeductTokens(category, cost, actionName, metaDetail, silentToast = false) {
+            if (typeof category === "number") {
+                metaDetail = actionName;
+                actionName = cost;
+                cost = category;
+                category = "entry_add";
+            }
             const st = mmTokenState || mmLoadTokenState();
             st.used = (st.used || 0) + cost;
+
+            if (!st.breakdown || typeof st.breakdown !== "object") {
+                st.breakdown = { entry_add: 0, entry_edit: 0, sales: 0, debt: 0, inv: 0 };
+            }
+            st.breakdown[category] = (st.breakdown[category] || 0) + cost;
+
+            if (!Array.isArray(st.history)) st.history = [];
+            st.history.unshift({
+                time: Date.now(),
+                type: "minus",
+                cost: cost,
+                category: category,
+                title: actionName || "کردار",
+                meta: metaDetail || ""
+            });
+            if (st.history.length > 60) st.history.length = 60;
+
             mmSaveTokenState(st);
             mmUpdateTokenUI();
-            showRefreshToast(`−${cost} خاڵ مەسرەف بوو (${actionName || ""})`, false);
+            if (!silentToast) {
+                showRefreshToast(`−${cost} خاڵ مەسرەف بوو (${actionName || ""})`, false);
+            }
         }
 
         function mmShowTokenExhaustedModal(cost, remaining, actionName) {
@@ -4180,6 +4339,18 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             st.bonusLimit = (st.bonusLimit || 0) + pointsAdded;
             if (!st.redeemedCodes) st.redeemedCodes = [];
             st.redeemedCodes.push(code);
+
+            if (!Array.isArray(st.history)) st.history = [];
+            st.history.unshift({
+                time: Date.now(),
+                type: "plus",
+                cost: pointsAdded,
+                category: "redeem",
+                title: "کۆدی خاڵان",
+                meta: `کۆد: ${code} (+${pointsAdded} خاڵ)`
+            });
+            if (st.history.length > 60) st.history.length = 60;
+
             mmSaveTokenState(st);
             mmUpdateTokenUI();
 
@@ -4203,69 +4374,36 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         }
 
         function mmHandleDailySalesTokenDeduction(data, dayKey) {
+            // 1. NEVER deduct tokens during refresh, pull-to-refresh, or background busy state!
+            if (refreshBusy) return;
             const salesCount = (data && Array.isArray(data.sales)) ? data.sales.length : 0;
             if (salesCount <= 0) return;
-            const syncKey = (data?.meta?.businessDate || dayKey) + "_s_" + salesCount;
+            const bizDate = String(data?.meta?.businessDate || dayKey || "").trim();
+            if (!bizDate) return;
+
             const st = mmTokenState || mmLoadTokenState();
-            if (st.lastSalesSyncKey === syncKey) return;
-            st.lastSalesSyncKey = syncKey;
-            let cost = 10;
-            let tierDesc = "کێم";
-            if (salesCount > 100) {
-                cost = 30;
-                tierDesc = "گەلەک";
-            } else if (salesCount >= 20) {
-                cost = 20;
-                tierDesc = "وەسەت";
-            }
-            if (mmCanSpendTokens(cost, `داتایێن فرۆتنێ - ${tierDesc}`)) {
-                mmDeductTokens(cost, `داتایێن فرۆتنێ (${salesCount} وەسڵ - ${tierDesc})`);
+            st.chargedSalesDates = st.chargedSalesDates || {};
+
+            // 2. 100% PERSISTENT LOCK: Deduct AT MOST ONCE per calendar day!
+            // If already charged for this business date, NEVER charge again!
+            if (st.chargedSalesDates[bizDate]) return;
+
+            st.chargedSalesDates[bizDate] = true;
+            st.lastSalesDate = bizDate;
+            st.lastSalesSyncTime = Date.now();
+
+            // 3. Fair single token per entire calendar date (regardless of sales count)
+            const cost = 1;
+
+            if (mmCanSpendTokens(cost, "داتای فرۆشتنی ئەمڕۆ")) {
+                const detailMeta = `${salesCount} وەسڵ · هەموو ڕۆژەکە بە ١ خاڵ (${bizDate})`;
+                mmDeductTokens("sales", cost, "فرۆشتنی ڕۆژانە", detailMeta, true);
             }
         }
 
-        function mmHandleDebtTokenDeduction(data) {
-            const custs = Array.isArray(data?.customers) ? data.customers : [];
-            const debtCount = custs.length;
-            if (debtCount <= 0) return;
-            const syncKey = "d_" + debtCount + "_" + (data?.updatedAt ? (data.updatedAt.seconds || "") : "");
-            const st = mmTokenState || mmLoadTokenState();
-            if (st.lastDebtSyncKey === syncKey) return;
-            st.lastDebtSyncKey = syncKey;
-            let cost = 5;
-            let tierDesc = "کێم";
-            if (debtCount > 50) {
-                cost = 15;
-                tierDesc = "گەلەک";
-            } else if (debtCount >= 15) {
-                cost = 10;
-                tierDesc = "وەسەت";
-            }
-            if (mmCanSpendTokens(cost, `داتایێن قەرزان - ${tierDesc}`)) {
-                mmDeductTokens(cost, `قەرز (${debtCount} کڕیار - ${tierDesc})`);
-            }
-        }
-
-        function mmHandleInventoryTokenDeduction(data) {
-            const items = Array.isArray(data?.products) ? data.products : [];
-            const invCount = items.length;
-            if (invCount <= 0) return;
-            const syncKey = "i_" + invCount + "_" + (data?.updatedAt ? (data.updatedAt.seconds || "") : "");
-            const st = mmTokenState || mmLoadTokenState();
-            if (st.lastInvSyncKey === syncKey) return;
-            st.lastInvSyncKey = syncKey;
-            let cost = 5;
-            let tierDesc = "کێم";
-            if (invCount > 150) {
-                cost = 15;
-                tierDesc = "گەلەک";
-            } else if (invCount >= 50) {
-                cost = 10;
-                tierDesc = "وەسەت";
-            }
-            if (mmCanSpendTokens(cost, `داتایێن کۆگەهـ - ${tierDesc}`)) {
-                mmDeductTokens(cost, `کۆگەهـ (${invCount} کاڵا - ${tierDesc})`);
-            }
-        }
+        // Viewing debt and warehouse is 100% free - zero token deduction
+        function mmHandleDebtTokenDeduction() {}
+        function mmHandleInventoryTokenDeduction() {}
 
         function initMobileTokens(channelId) {
             mmTokenState = mmLoadTokenState(channelId);
@@ -4279,11 +4417,37 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                     const card = document.getElementById("mmTokenCard");
                     if (card) {
                         card.scrollIntoView({ behavior: "smooth", block: "start" });
-                        const det = document.getElementById("mmTokenPacksDetails");
-                        if (det) det.open = true;
+                        const subtabAnalytics = document.querySelector('.mm-token-subtab-btn[data-tab="analytics"]');
+                        if (subtabAnalytics) subtabAnalytics.click();
                     }
                 });
             }
+
+            // Subtab navigation inside Token Card
+            document.querySelectorAll(".mm-token-subtab-btn").forEach(btn => {
+                if (!btn.__bound) {
+                    btn.__bound = true;
+                    btn.addEventListener("click", () => {
+                        const tab = btn.getAttribute("data-tab");
+                        document.querySelectorAll(".mm-token-subtab-btn").forEach(b => b.classList.remove("active"));
+                        btn.classList.add("active");
+
+                        const viewAnalytics = document.getElementById("mmTokenViewAnalytics");
+                        const viewHistory = document.getElementById("mmTokenViewHistory");
+                        const viewPacks = document.getElementById("mmTokenViewPacks");
+                        const viewRules = document.getElementById("mmTokenViewRules");
+
+                        if (viewAnalytics) viewAnalytics.style.display = tab === "analytics" ? "block" : "none";
+                        if (viewHistory) viewHistory.style.display = tab === "history" ? "block" : "none";
+                        if (viewPacks) viewPacks.style.display = tab === "packs" ? "block" : "none";
+                        if (viewRules) viewRules.style.display = tab === "rules" ? "block" : "none";
+
+                        if (tab === "analytics" || tab === "history") {
+                            mmUpdateTokenUI();
+                        }
+                    });
+                }
+            });
 
             const redeemBtn = document.getElementById("mmTokenRedeemBtn");
             const codeInp = document.getElementById("mmTokenCodeInput");
