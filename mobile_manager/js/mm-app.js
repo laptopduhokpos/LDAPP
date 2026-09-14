@@ -3514,6 +3514,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             }
         }
 
+        window.doLogin = doLogin;
+
         const themeBtn = document.getElementById("themeToggleBtn");
         const themeIcon = document.getElementById("themeIcon");
         function updateThemeIcon() {
@@ -3522,15 +3524,25 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             themeIcon.style.color = isLight ? "#2563eb" : "#fbbf24";
         }
         updateThemeIcon();
-        themeBtn.addEventListener("click", () => {
-            const newTheme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
-            if (newTheme === "light") document.documentElement.setAttribute("data-theme", "light");
-            else document.documentElement.removeAttribute("data-theme");
-            localStorage.setItem("pos_mobile_theme", newTheme);
-            updateThemeIcon();
-        });
+        if (themeBtn) {
+            themeBtn.addEventListener("click", () => {
+                const newTheme = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+                if (newTheme === "light") document.documentElement.setAttribute("data-theme", "light");
+                else document.documentElement.removeAttribute("data-theme");
+                localStorage.setItem("pos_mobile_theme", newTheme);
+                updateThemeIcon();
+            });
+        }
 
-        document.getElementById("authForm").addEventListener("submit", (ev) => { ev.preventDefault(); doLogin(); });
+        const authForm = document.getElementById("authForm");
+        if (authForm) {
+            authForm.addEventListener("submit", (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                doLogin();
+                return false;
+            });
+        }
         if (tabHomeBtn) tabHomeBtn.addEventListener("click", () => switchMobileTab("home"));
         if (tabDashBtn) tabDashBtn.addEventListener("click", () => switchMobileTab("dash"));
         if (tabEntryBtn) tabEntryBtn.addEventListener("click", () => switchMobileTab("entry"));
