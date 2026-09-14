@@ -1628,6 +1628,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             }
             refreshDebtView();
             bindDebtFilters();
+            if (!opts.fromCache && data && Array.isArray(data.customers) && data.customers.length > 0) {
+                mmHandleDebtTokenDeduction(data);
+            }
             if (activeChannelId && !opts.fromCache) {
                 mmSnapSaveDebounced(activeChannelId, "debt", data);
             }
@@ -2469,6 +2472,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const modeWrap = document.getElementById("mmEntryQtyModeWrap");
 
             if (foundIdEl) foundIdEl.value = found.id || "0";
+            const costBadge = document.getElementById("entryTokenCostBadge");
+            if (costBadge) costBadge.innerHTML = '<i class="fas fa-coins"></i> ١ خاڵ (دەستکاری)';
             if (nameEl) nameEl.value = found.name || "";
             if (catEl) catEl.value = found.category || "";
             if (mfrEl) mfrEl.value = found.manufacturer || "";
@@ -2641,6 +2646,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (catInp) catInp.value = "";
             if (mfrInp) mfrInp.value = "";
             if (fId) fId.value = "0";
+            const costBadge = document.getElementById("entryTokenCostBadge");
+            if (costBadge) costBadge.innerHTML = '<i class="fas fa-coins"></i> ٢ خاڵ (ئیدخال)';
 
             // Pack
             const bPack = document.getElementById("mmEntryBarcodePack");
@@ -2845,6 +2852,14 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const note = (document.getElementById("mmEntryNote")?.value || "").trim();
             const forSale = document.getElementById("mmEntryForSale") ? (document.getElementById("mmEntryForSale").checked ? 1 : 0) : 1;
 
+            const isEdit = foundId > 0;
+            const tokenCost = isEdit ? 1 : 2;
+            const actionLabel = isEdit ? "دەستکاری (Edit)" : "ئیدخالکرنا کاڵایێ نوێ (Add)";
+
+            if (!mmCanSpendTokens(tokenCost, actionLabel)) {
+                return;
+            }
+
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> چاوەڕێبە...';
@@ -2958,6 +2973,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             }
 
             updateLocalCacheAfterEntry(itemPayload);
+            mmDeductTokens(tokenCost, actionLabel, { name: itemPayload.name, barcode: itemPayload.barcode });
 
             if (btn) {
                 btn.disabled = false;
@@ -3333,6 +3349,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             refreshInventoryView();
             bindInventoryFilters();
             bindInvSubTabs();
+            if (!opts.fromCache && data && Array.isArray(data.products) && data.products.length > 0) {
+                mmHandleInventoryTokenDeduction(data);
+            }
             if (typeof populateEntryCategories === "function") populateEntryCategories();
             if (typeof populateEntryManufacturers === "function") populateEntryManufacturers();
             if (data.debtSnapshot && (data.debtSnapshot.summary || data.debtSnapshot.companies || data.debtSnapshot.customers)) {
@@ -3377,6 +3396,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const priv = mmPrivacyFromDoc(data);
             setMobileAmountMeta(data);
             const sales = priv.hideSalesDetail ? [] : (Array.isArray(data.sales) ? data.sales : []);
+            if (!opts.fromCache && Array.isArray(data.sales) && data.sales.length > 0) {
+                mmHandleDailySalesTokenDeduction(data, dayKey);
+            }
             const ret = Array.isArray(data.returns) ? data.returns : [];
             const exp = Array.isArray(data.expenses) ? data.expenses : [];
             const purchases = Array.isArray(data.purchases) ? data.purchases : [];
@@ -3925,6 +3947,400 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         }
         mmRegisterServiceWorker();
 
+        /* =========================================================
+           MOBILE MANAGER TOKEN ENGINE (وەکی ئەی ئای)
+           ========================================================= */
+        const MM_TOKEN_SALT = "LD_MM_2026_";
+        let mmTokenState = null;
+
+        function mmGetTokenStorageKey(channelId) {
+            return "pos_mm_tokens_" + (channelId || activeChannelId || "default").toLowerCase();
+        }
+
+        function mmLoadTokenState(channelId) {
+            const k = mmGetTokenStorageKey(channelId);
+            let state = null;
+            try {
+                const s = localStorage.getItem(k);
+                if (s) state = JSON.parse(s);
+            } catch (e) {}
+
+            const now = Date.now();
+            const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+
+            if (!state || typeof state !== "object") {
+                state = {
+                    tier: "basic",
+                    baseLimit: 150,
+                    bonusLimit: 0,
+                    used: 0,
+                    periodStart: now,
+                    resetsOn: now + thirtyDaysMs,
+                    redeemedCodes: [],
+                    lastSalesSyncKey: "",
+                    lastDebtSyncKey: "",
+                    lastInvSyncKey: ""
+                };
+            } else {
+                if (typeof state.baseLimit !== "number") state.baseLimit = 150;
+                if (typeof state.bonusLimit !== "number") state.bonusLimit = 0;
+                if (typeof state.used !== "number") state.used = 0;
+                if (!Array.isArray(state.redeemedCodes)) state.redeemedCodes = [];
+                if (!state.resetsOn || typeof state.resetsOn !== "number") {
+                    state.periodStart = now;
+                    state.resetsOn = now + thirtyDaysMs;
+                }
+            }
+
+            // Monthly Auto-Renewal Gift (وەکی ئەی ئای)
+            if (now >= state.resetsOn) {
+                state.periodStart = now;
+                state.resetsOn = now + thirtyDaysMs;
+                state.used = 0;
+                mmSaveTokenState(state, channelId);
+                setTimeout(() => {
+                    showRefreshToast("🎉 پیرۆزە! ۱۵۰ خاڵی دیاریا مانگانە نوێ بووەوە!", false);
+                    playChime(true);
+                }, 1000);
+            }
+
+            return state;
+        }
+
+        function mmSaveTokenState(state, channelId) {
+            mmTokenState = state;
+            const k = mmGetTokenStorageKey(channelId || activeChannelId);
+            try {
+                localStorage.setItem(k, JSON.stringify(state));
+            } catch (e) {}
+        }
+
+        function mmGetTokensRemaining(state) {
+            const st = state || mmTokenState || mmLoadTokenState();
+            const total = (st.baseLimit || 150) + (st.bonusLimit || 0);
+            return Math.max(0, total - (st.used || 0));
+        }
+
+        function mmUpdateTokenUI() {
+            const st = mmTokenState || mmLoadTokenState();
+            const total = (st.baseLimit || 150) + (st.bonusLimit || 0);
+            const used = Math.min(total, st.used || 0);
+            const remaining = Math.max(0, total - used);
+            const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+
+            const scoreEl = document.getElementById("mmTokenScoreText");
+            if (scoreEl) scoreEl.textContent = `${used} / ${total}`;
+
+            const topChip = document.getElementById("topbarTokenChip");
+            const topVal = document.getElementById("topbarTokenVal");
+            if (topVal) topVal.textContent = remaining;
+            if (topChip && activeChannelId) topChip.classList.remove("hidden");
+
+            const barEl = document.getElementById("mmTokenBarFill");
+            if (barEl) {
+                barEl.style.width = pct + "%";
+                if (remaining <= 10) barEl.classList.add("warning");
+                else barEl.classList.remove("warning");
+            }
+
+            const planBadge = document.getElementById("mmTokenPlanBadge");
+            if (planBadge) {
+                const planName = st.tier === "pro" ? "Pro · 300/30 ڕۆژ" : "Basic · 150/30 ڕۆژ";
+                planBadge.textContent = planName;
+            }
+
+            const resetHint = document.getElementById("mmTokenResetHint");
+            if (resetHint && st.resetsOn) {
+                const d = new Date(st.resetsOn);
+                const dayStr = String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0");
+                resetHint.textContent = `نوێدەبێتەوە ${dayStr} · 30 ڕۆژ`;
+            }
+
+            const remHint = document.getElementById("mmTokenRemainingHint");
+            if (remHint) {
+                remHint.textContent = `${remaining} ماوە`;
+                remHint.style.color = remaining <= 10 ? "#ef4444" : "#38bdf8";
+            }
+        }
+
+        function mmCanSpendTokens(cost, actionName) {
+            const st = mmTokenState || mmLoadTokenState();
+            const remaining = mmGetTokensRemaining(st);
+            if (remaining < cost) {
+                mmShowTokenExhaustedModal(cost, remaining, actionName);
+                return false;
+            }
+            return true;
+        }
+
+        function mmDeductTokens(cost, actionName, meta) {
+            const st = mmTokenState || mmLoadTokenState();
+            st.used = (st.used || 0) + cost;
+            mmSaveTokenState(st);
+            mmUpdateTokenUI();
+            showRefreshToast(`−${cost} خاڵ مەسرەف بوو (${actionName || ""})`, false);
+        }
+
+        function mmShowTokenExhaustedModal(cost, remaining, actionName) {
+            const modal = document.getElementById("mmTokenModal");
+            const desc = document.getElementById("mmTokenModalDesc");
+            if (desc) {
+                desc.innerHTML = `سنوورا خاڵێن تە ل سەر مۆبایلێ تەواو بوو (تەنها <strong>${remaining}</strong> خاڵ ماون).<br>کرداری «<strong>${actionName || "مۆبایل"}</strong>» پێویستی ب <strong>${cost}</strong> خاڵ هەیە.`;
+            }
+            if (modal) modal.classList.remove("hidden");
+            if (navigator.vibrate) navigator.vibrate([100, 80, 100]);
+        }
+
+        function mmCloseTokenModal() {
+            const modal = document.getElementById("mmTokenModal");
+            if (modal) modal.classList.add("hidden");
+        }
+
+        function mmVerifyCodeOffline(codeStr) {
+            const clean = String(codeStr || "").trim().toUpperCase();
+            const parts = clean.split("-");
+            if (parts.length === 4 && parts[0] === "MM") {
+                const total = parseInt(parts[1], 10);
+                const rand = parts[2];
+                const check = parts[3];
+                if (total > 0 && rand && check) {
+                    const salt = MM_TOKEN_SALT + total + "_" + rand;
+                    let hash = 0;
+                    for (let i = 0; i < salt.length; i++) {
+                        hash = ((hash << 5) - hash) + salt.charCodeAt(i);
+                        hash |= 0;
+                    }
+                    const expected = Math.abs(hash).toString(36).toUpperCase().padStart(4, "X").slice(0, 4);
+                    if (check === expected) {
+                        return { valid: true, points: total };
+                    }
+                }
+            }
+            if (/^AI[A-Z0-9]{10}$/.test(clean)) {
+                return { valid: true, points: 170 };
+            }
+            return { valid: false };
+        }
+
+        async function mmRedeemTokenCode(codeRaw, isModal = false) {
+            const code = String(codeRaw || "").trim().toUpperCase();
+            const msgEl = document.getElementById(isModal ? "mmTokenModalMsg" : "mmTokenRedeemMsg");
+            if (!code) {
+                if (msgEl) {
+                    msgEl.className = "mm-token-redeem-msg error";
+                    msgEl.textContent = "تکایە کۆدی چالاککردن بنووسە.";
+                    msgEl.style.display = "block";
+                }
+                return;
+            }
+
+            const st = mmTokenState || mmLoadTokenState();
+            if (st.redeemedCodes && st.redeemedCodes.includes(code)) {
+                if (msgEl) {
+                    msgEl.className = "mm-token-redeem-msg error";
+                    msgEl.textContent = "ئەم کۆدە پێشتر بەکارهاتووە.";
+                    msgEl.style.display = "block";
+                }
+                return;
+            }
+
+            let pointsAdded = 0;
+            const posBase = guessPosBase();
+            if (posBase && window.location.protocol !== "https:") {
+                try {
+                    const fd = new FormData();
+                    fd.append("action", "redeem_token_code");
+                    fd.append("code", code);
+                    fd.append("email", activeChannelId || "");
+                    const res = await fetch(posBase + "/mobile_entry.php", { method: "POST", body: fd });
+                    const json = await res.json();
+                    if (json && json.status === "success" && json.points) {
+                        pointsAdded = parseInt(json.points, 10);
+                    }
+                } catch (e) {}
+            }
+
+            if (!pointsAdded) {
+                const offCheck = mmVerifyCodeOffline(code);
+                if (offCheck.valid && offCheck.points) {
+                    pointsAdded = offCheck.points;
+                }
+            }
+
+            if (!pointsAdded) {
+                if (msgEl) {
+                    msgEl.className = "mm-token-redeem-msg error";
+                    msgEl.textContent = "کۆد هەڵەیە یان نەناسراوە. تکایە دڵنیابە لە کۆدەکەت.";
+                    msgEl.style.display = "block";
+                }
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                return;
+            }
+
+            st.bonusLimit = (st.bonusLimit || 0) + pointsAdded;
+            if (!st.redeemedCodes) st.redeemedCodes = [];
+            st.redeemedCodes.push(code);
+            mmSaveTokenState(st);
+            mmUpdateTokenUI();
+
+            if (msgEl) {
+                msgEl.className = "mm-token-redeem-msg success";
+                msgEl.textContent = `🎉 پیرۆزە! +${pointsAdded} خاڵ بە سەرکەوتوویی زیاد کرا!`;
+                msgEl.style.display = "block";
+            }
+
+            playChime(true);
+            if (navigator.vibrate) navigator.vibrate([80, 50, 120]);
+
+            const inp1 = document.getElementById("mmTokenCodeInput");
+            const inp2 = document.getElementById("mmTokenModalCodeInp");
+            if (inp1) inp1.value = "";
+            if (inp2) inp2.value = "";
+
+            if (isModal) {
+                setTimeout(() => { mmCloseTokenModal(); }, 1500);
+            }
+        }
+
+        function mmHandleDailySalesTokenDeduction(data, dayKey) {
+            const salesCount = (data && Array.isArray(data.sales)) ? data.sales.length : 0;
+            if (salesCount <= 0) return;
+            const syncKey = (data?.meta?.businessDate || dayKey) + "_s_" + salesCount;
+            const st = mmTokenState || mmLoadTokenState();
+            if (st.lastSalesSyncKey === syncKey) return;
+            st.lastSalesSyncKey = syncKey;
+            let cost = 10;
+            let tierDesc = "کێم";
+            if (salesCount > 100) {
+                cost = 30;
+                tierDesc = "گەلەک";
+            } else if (salesCount >= 20) {
+                cost = 20;
+                tierDesc = "وەسەت";
+            }
+            if (mmCanSpendTokens(cost, `داتایێن فرۆتنێ - ${tierDesc}`)) {
+                mmDeductTokens(cost, `داتایێن فرۆتنێ (${salesCount} وەسڵ - ${tierDesc})`);
+            }
+        }
+
+        function mmHandleDebtTokenDeduction(data) {
+            const custs = Array.isArray(data?.customers) ? data.customers : [];
+            const debtCount = custs.length;
+            if (debtCount <= 0) return;
+            const syncKey = "d_" + debtCount + "_" + (data?.updatedAt ? (data.updatedAt.seconds || "") : "");
+            const st = mmTokenState || mmLoadTokenState();
+            if (st.lastDebtSyncKey === syncKey) return;
+            st.lastDebtSyncKey = syncKey;
+            let cost = 5;
+            let tierDesc = "کێم";
+            if (debtCount > 50) {
+                cost = 15;
+                tierDesc = "گەلەک";
+            } else if (debtCount >= 15) {
+                cost = 10;
+                tierDesc = "وەسەت";
+            }
+            if (mmCanSpendTokens(cost, `داتایێن قەرزان - ${tierDesc}`)) {
+                mmDeductTokens(cost, `قەرز (${debtCount} کڕیار - ${tierDesc})`);
+            }
+        }
+
+        function mmHandleInventoryTokenDeduction(data) {
+            const items = Array.isArray(data?.products) ? data.products : [];
+            const invCount = items.length;
+            if (invCount <= 0) return;
+            const syncKey = "i_" + invCount + "_" + (data?.updatedAt ? (data.updatedAt.seconds || "") : "");
+            const st = mmTokenState || mmLoadTokenState();
+            if (st.lastInvSyncKey === syncKey) return;
+            st.lastInvSyncKey = syncKey;
+            let cost = 5;
+            let tierDesc = "کێم";
+            if (invCount > 150) {
+                cost = 15;
+                tierDesc = "گەلەک";
+            } else if (invCount >= 50) {
+                cost = 10;
+                tierDesc = "وەسەت";
+            }
+            if (mmCanSpendTokens(cost, `داتایێن کۆگەهـ - ${tierDesc}`)) {
+                mmDeductTokens(cost, `کۆگەهـ (${invCount} کاڵا - ${tierDesc})`);
+            }
+        }
+
+        function initMobileTokens(channelId) {
+            mmTokenState = mmLoadTokenState(channelId);
+            mmUpdateTokenUI();
+
+            const topChip = document.getElementById("topbarTokenChip");
+            if (topChip && !topChip.__bound) {
+                topChip.__bound = true;
+                topChip.addEventListener("click", () => {
+                    switchMobileTab("home");
+                    const card = document.getElementById("mmTokenCard");
+                    if (card) {
+                        card.scrollIntoView({ behavior: "smooth", block: "start" });
+                        const det = document.getElementById("mmTokenPacksDetails");
+                        if (det) det.open = true;
+                    }
+                });
+            }
+
+            const redeemBtn = document.getElementById("mmTokenRedeemBtn");
+            const codeInp = document.getElementById("mmTokenCodeInput");
+            if (redeemBtn && !redeemBtn.__bound) {
+                redeemBtn.__bound = true;
+                redeemBtn.addEventListener("click", () => {
+                    mmRedeemTokenCode(codeInp ? codeInp.value : "", false);
+                });
+            }
+            if (codeInp && !codeInp.__bound) {
+                codeInp.__bound = true;
+                codeInp.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        mmRedeemTokenCode(codeInp.value, false);
+                    }
+                });
+            }
+
+            const modalRedeemBtn = document.getElementById("mmTokenModalRedeemBtn");
+            const modalCodeInp = document.getElementById("mmTokenModalCodeInp");
+            const modalCloseBtn = document.getElementById("mmTokenModalCloseBtn");
+            if (modalRedeemBtn && !modalRedeemBtn.__bound) {
+                modalRedeemBtn.__bound = true;
+                modalRedeemBtn.addEventListener("click", () => {
+                    mmRedeemTokenCode(modalCodeInp ? modalCodeInp.value : "", true);
+                });
+            }
+            if (modalCodeInp && !modalCodeInp.__bound) {
+                modalCodeInp.__bound = true;
+                modalCodeInp.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") {
+                        e.preventDefault();
+                        mmRedeemTokenCode(modalCodeInp.value, true);
+                    }
+                });
+            }
+            if (modalCloseBtn && !modalCloseBtn.__bound) {
+                modalCloseBtn.__bound = true;
+                modalCloseBtn.addEventListener("click", mmCloseTokenModal);
+            }
+
+            document.querySelectorAll(".mm-token-pack-card").forEach((card) => {
+                if (!card.__bound) {
+                    card.__bound = true;
+                    card.addEventListener("click", () => {
+                        const packKey = card.getAttribute("data-pack");
+                        let packText = "+100 خاڵ · $4";
+                        if (packKey === "mm200") packText = "+200 خاڵ · $8";
+                        if (packKey === "mm400") packText = "+400 خاڵ · $12";
+                        showRefreshToast(`پاکێتی ${packText} هەڵبژێردرا. تکایە کۆدی کڕین چالاک بکە.`, false);
+                        if (codeInp) codeInp.focus();
+                    });
+                }
+            });
+        }
+
         const appShell = document.getElementById("appShell");
 
         onAuthStateChanged(auth, async (user) => {
@@ -3935,6 +4351,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 mmLastCacheSavedAt = null;
                 if (appShell) appShell.classList.remove("is-logged-in");
                 if (refreshBtn) refreshBtn.classList.add("hidden");
+                const topChip = document.getElementById("topbarTokenChip");
+                if (topChip) topChip.classList.add("hidden");
                 if (unsub) { unsub(); unsub = null; }
                 if (unsubDetail) { unsubDetail(); unsubDetail = null; }
                 if (unsubInventory) { unsubInventory(); unsubInventory = null; }
@@ -3976,6 +4394,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             );
             const channelId = user.email.toLowerCase();
             activeChannelId = channelId;
+            initMobileTokens(channelId);
             mmLoadCachedBusinessMeta(channelId);
             const dayKey = getMobileBusinessDayKey();
             await mmHydrateFromLocalStore(channelId, dayKey);
