@@ -2218,9 +2218,6 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
         let mmEntryShowPack = false;
         let mmEntryShowCarton = false;
         let mmEntryTrackStock = true;
-        let mmEntryMode = "add";
-        let mmEntryLookupTimer = null;
-        let mmEntryRecent = [];
 
         function populateEntryCategories() {
             const datalist = document.getElementById("mmEntryCatList");
@@ -3541,6 +3538,13 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 ev.stopPropagation();
                 doLogin();
                 return false;
+            });
+        }
+        const loginBtn = document.getElementById("loginBtn");
+        if (loginBtn) {
+            loginBtn.addEventListener("click", (ev) => {
+                ev.preventDefault();
+                doLogin();
             });
         }
         if (tabHomeBtn) tabHomeBtn.addEventListener("click", () => switchMobileTab("home"));
