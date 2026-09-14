@@ -2476,16 +2476,28 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (costEl) costEl.value = (found.cost !== undefined && found.cost !== null) ? found.cost : "";
             if (stockPieceEl) stockPieceEl.value = "1";
 
+            // Piece wholesale price
+            const wpPieceEl = document.getElementById("mmEntryWholesalePricePiece");
+            const twPiece = (found.takeawayPrice !== undefined && found.takeawayPrice !== null && Number(found.takeawayPrice) > 0)
+                ? found.takeawayPrice
+                : ((found.wholesalePrice !== undefined && found.wholesalePrice !== null && Number(found.wholesalePrice) > 0) ? found.wholesalePrice : "");
+            if (wpPieceEl) wpPieceEl.value = twPiece;
+
             // Pack fields
             const hasPack = !!(found.unit_show_pack || found.barcode_pack || (found.price_pack && found.price_pack > 0));
             toggleEntryPack(hasPack);
             const bPackEl = document.getElementById("mmEntryBarcodePack");
             const pPackEl = document.getElementById("mmEntryPricePack");
+            const wpPackEl = document.getElementById("mmEntryWholesalePricePack");
             const cPackEl = document.getElementById("mmEntryCostPack");
             const sPackEl = document.getElementById("mmEntryStockPack");
             const pppEl = document.getElementById("mmEntryPiecesPerPack");
             if (bPackEl) bPackEl.value = found.barcode_pack || "";
             if (pPackEl) pPackEl.value = (found.price_pack !== undefined && found.price_pack !== null) ? found.price_pack : "";
+            if (wpPackEl) {
+                const twPack = (found.takeawayPrice_pack !== undefined && found.takeawayPrice_pack !== null && Number(found.takeawayPrice_pack) > 0) ? found.takeawayPrice_pack : "";
+                wpPackEl.value = twPack;
+            }
             if (cPackEl) cPackEl.value = (found.cost_pack !== undefined && found.cost_pack !== null) ? found.cost_pack : "";
             if (sPackEl) sPackEl.value = "0";
             if (pppEl) pppEl.value = found.pieces_per_pack || 1;
@@ -2495,11 +2507,16 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             toggleEntryCarton(hasCarton);
             const bCartonEl = document.getElementById("mmEntryBarcodeCarton");
             const pCartonEl = document.getElementById("mmEntryPriceCarton");
+            const wpCartonEl = document.getElementById("mmEntryWholesalePriceCarton");
             const cCartonEl = document.getElementById("mmEntryCostCarton");
             const sCartonEl = document.getElementById("mmEntryStockCarton");
             const ppcEl = document.getElementById("mmEntryPacksPerCarton");
             if (bCartonEl) bCartonEl.value = found.barcode_carton || "";
             if (pCartonEl) pCartonEl.value = (found.price_carton !== undefined && found.price_carton !== null) ? found.price_carton : "";
+            if (wpCartonEl) {
+                const twCarton = (found.takeawayPrice_carton !== undefined && found.takeawayPrice_carton !== null && Number(found.takeawayPrice_carton) > 0) ? found.takeawayPrice_carton : "";
+                wpCartonEl.value = twCarton;
+            }
             if (cCartonEl) cCartonEl.value = (found.cost_carton !== undefined && found.cost_carton !== null) ? found.cost_carton : "";
             if (sCartonEl) sCartonEl.value = "0";
             if (ppcEl) ppcEl.value = found.packs_per_carton || 1;
@@ -2512,7 +2529,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const noteEl = document.getElementById("mmEntryNote");
             const saleEl = document.getElementById("mmEntryForSale");
             if (wqEl) wqEl.value = found.wholesaleQty || "";
-            if (wpEl) wpEl.value = found.wholesalePrice || "";
+            if (wpEl) wpEl.value = twPiece;
             if (expEl) expEl.value = found.expiry || "";
             if (minEl) minEl.value = found.minStock || 5;
             if (noteEl) noteEl.value = found.note || "";
@@ -2610,6 +2627,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const pInp = document.getElementById("mmEntryPrice");
             const cInp = document.getElementById("mmEntryCost");
             const sPiece = document.getElementById("mmEntryStockPiece");
+            const wpPiece = document.getElementById("mmEntryWholesalePricePiece");
             const catInp = document.getElementById("mmEntryCat");
             const mfrInp = document.getElementById("mmEntryMfr");
             const fId = document.getElementById("mmEntryFoundId");
@@ -2619,6 +2637,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             if (pInp) pInp.value = "";
             if (cInp) cInp.value = "";
             if (sPiece) sPiece.value = "1";
+            if (wpPiece) wpPiece.value = "";
             if (catInp) catInp.value = "";
             if (mfrInp) mfrInp.value = "";
             if (fId) fId.value = "0";
@@ -2626,11 +2645,13 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             // Pack
             const bPack = document.getElementById("mmEntryBarcodePack");
             const pPack = document.getElementById("mmEntryPricePack");
+            const wpPack = document.getElementById("mmEntryWholesalePricePack");
             const cPack = document.getElementById("mmEntryCostPack");
             const sPack = document.getElementById("mmEntryStockPack");
             const ppp = document.getElementById("mmEntryPiecesPerPack");
             if (bPack) bPack.value = "";
             if (pPack) pPack.value = "";
+            if (wpPack) wpPack.value = "";
             if (cPack) cPack.value = "";
             if (sPack) sPack.value = "0";
             if (ppp) ppp.value = "1";
@@ -2638,11 +2659,13 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             // Carton
             const bCarton = document.getElementById("mmEntryBarcodeCarton");
             const pCarton = document.getElementById("mmEntryPriceCarton");
+            const wpCarton = document.getElementById("mmEntryWholesalePriceCarton");
             const cCarton = document.getElementById("mmEntryCostCarton");
             const sCarton = document.getElementById("mmEntryStockCarton");
             const ppc = document.getElementById("mmEntryPacksPerCarton");
             if (bCarton) bCarton.value = "";
             if (pCarton) pCarton.value = "";
+            if (wpCarton) wpCarton.value = "";
             if (cCarton) cCarton.value = "";
             if (sCarton) sCarton.value = "0";
             if (ppc) ppc.value = "1";
@@ -2691,6 +2714,10 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 if (item.price_carton !== undefined) p.price_carton = item.price_carton;
                 if (item.cost_pack !== undefined) p.cost_pack = item.cost_pack;
                 if (item.cost_carton !== undefined) p.cost_carton = item.cost_carton;
+                if (item.takeawayPrice !== undefined) p.takeawayPrice = item.takeawayPrice;
+                if (item.takeawayPrice_pack !== undefined) p.takeawayPrice_pack = item.takeawayPrice_pack;
+                if (item.takeawayPrice_carton !== undefined) p.takeawayPrice_carton = item.takeawayPrice_carton;
+                if (item.wholesalePrice !== undefined) p.wholesalePrice = item.wholesalePrice;
                 if (item.pieces_per_pack) p.pieces_per_pack = item.pieces_per_pack;
                 if (item.packs_per_carton) p.packs_per_carton = item.packs_per_carton;
                 if (item.finalQty !== undefined) {
@@ -2720,7 +2747,11 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                     price_pack: item.price_pack,
                     price_carton: item.price_carton,
                     cost_pack: item.cost_pack,
-                    cost_carton: item.cost_carton
+                    cost_carton: item.cost_carton,
+                    takeawayPrice: item.takeawayPrice || item.wholesalePrice || 0,
+                    takeawayPrice_pack: item.takeawayPrice_pack || 0,
+                    takeawayPrice_carton: item.takeawayPrice_carton || 0,
+                    wholesalePrice: item.wholesalePrice || 0
                 });
             }
             refreshInventoryView();
@@ -2740,6 +2771,8 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 let extraUnits = "";
                 if (it.unit_show_pack && it.stock_pack) extraUnits += ` · ${it.stock_pack} پاکێت`;
                 if (it.unit_show_carton && it.stock_carton) extraUnits += ` · ${it.stock_carton} کارتۆن`;
+                let wsText = "";
+                if (it.takeawayPrice) wsText += ` · جوملە: ${formatMoney(it.takeawayPrice)}`;
                 return `
                     <div class="entry-recent-item">
                         <div class="entry-recent-info">
@@ -2748,6 +2781,7 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                                 ${it.barcode ? `<span dir="ltr">#${esc(it.barcode)}</span> · ` : ""}
                                 ${it.category ? `<span>${esc(it.category)}</span> · ` : ""}
                                 <span>نرخ: ${formatMoney(it.price)}</span>
+                                ${wsText ? `<span style="color:#f59e0b">${wsText}</span>` : ""}
                                 ${extraUnits ? `<span style="color:#38bdf8">${extraUnits}</span>` : ""}
                             </div>
                         </div>
@@ -2791,14 +2825,21 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const barcodePack = mmEntryShowPack ? (document.getElementById("mmEntryBarcodePack")?.value || "").trim() : "";
             const pricePack = mmEntryShowPack ? (document.getElementById("mmEntryPricePack")?.value || "") : "";
             const costPack = mmEntryShowPack ? (document.getElementById("mmEntryCostPack")?.value || "") : "";
+            const wpPack = mmEntryShowPack ? (document.getElementById("mmEntryWholesalePricePack")?.value || "") : "";
 
             const barcodeCarton = mmEntryShowCarton ? (document.getElementById("mmEntryBarcodeCarton")?.value || "").trim() : "";
             const priceCarton = mmEntryShowCarton ? (document.getElementById("mmEntryPriceCarton")?.value || "") : "";
             const costCarton = mmEntryShowCarton ? (document.getElementById("mmEntryCostCarton")?.value || "") : "";
+            const wpCarton = mmEntryShowCarton ? (document.getElementById("mmEntryWholesalePriceCarton")?.value || "") : "";
+
+            // Wholesale prices (Piece, Pack, Carton)
+            const wholesalePricePiece = parseFloat(document.getElementById("mmEntryWholesalePricePiece")?.value) || parseFloat(document.getElementById("mmEntryWholesalePrice")?.value) || 0;
+            const wholesalePricePack = wpPack !== "" ? parseFloat(wpPack) : 0;
+            const wholesalePriceCarton = wpCarton !== "" ? parseFloat(wpCarton) : 0;
 
             // Advanced data
             const wholesaleQty = parseInt(document.getElementById("mmEntryWholesaleQty")?.value, 10) || 0;
-            const wholesalePrice = parseFloat(document.getElementById("mmEntryWholesalePrice")?.value) || 0;
+            const wholesalePrice = wholesalePricePiece;
             const expiry = (document.getElementById("mmEntryExpiry")?.value || "").trim();
             const minStock = parseInt(document.getElementById("mmEntryMinStock")?.value, 10) || 5;
             const note = (document.getElementById("mmEntryNote")?.value || "").trim();
@@ -2834,6 +2875,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                 cost_pack: costPack !== "" ? parseFloat(costPack) : null,
                 price_carton: priceCarton !== "" ? parseFloat(priceCarton) : null,
                 cost_carton: costCarton !== "" ? parseFloat(costCarton) : null,
+                takeawayPrice: wholesalePricePiece,
+                takeawayPrice_pack: wholesalePricePack,
+                takeawayPrice_carton: wholesalePriceCarton,
                 wholesaleQty: wholesaleQty,
                 wholesalePrice: wholesalePrice,
                 expiry: expiry,
@@ -2872,6 +2916,9 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
                     if (itemPayload.cost_pack != null) fd.append("cost_pack", itemPayload.cost_pack);
                     if (itemPayload.price_carton != null) fd.append("price_carton", itemPayload.price_carton);
                     if (itemPayload.cost_carton != null) fd.append("cost_carton", itemPayload.cost_carton);
+                    if (itemPayload.takeawayPrice) fd.append("takeawayPrice", itemPayload.takeawayPrice);
+                    if (itemPayload.takeawayPrice_pack) fd.append("takeawayPrice_pack", itemPayload.takeawayPrice_pack);
+                    if (itemPayload.takeawayPrice_carton) fd.append("takeawayPrice_carton", itemPayload.takeawayPrice_carton);
                     if (itemPayload.wholesaleQty) fd.append("wholesaleQty", itemPayload.wholesaleQty);
                     if (itemPayload.wholesalePrice) fd.append("wholesalePrice", itemPayload.wholesalePrice);
                     if (itemPayload.expiry) fd.append("expiry", itemPayload.expiry);
@@ -3012,6 +3059,13 @@ import { initializeApp, getApp } from "https://www.gstatic.com/firebasejs/10.12.
             const toggleTrackBtn = document.getElementById("mmToggleTrackBtn");
             if (toggleTrackBtn) {
                 toggleTrackBtn.addEventListener("click", () => toggleEntryTrack());
+            }
+
+            const wpPieceInp = document.getElementById("mmEntryWholesalePricePiece");
+            const wpDetailsInp = document.getElementById("mmEntryWholesalePrice");
+            if (wpPieceInp && wpDetailsInp) {
+                wpPieceInp.addEventListener("input", () => { wpDetailsInp.value = wpPieceInp.value; });
+                wpDetailsInp.addEventListener("input", () => { wpPieceInp.value = wpDetailsInp.value; });
             }
 
             ["mmEntryPiecesPerPack", "mmEntryPacksPerCarton", "mmEntryStockPiece", "mmEntryStockPack", "mmEntryStockCarton"].forEach(id => {
